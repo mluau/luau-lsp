@@ -71,6 +71,7 @@ std::string toStringNamedFunction(const Luau::ModulePtr& module, const Luau::Fun
     opts.hideNamedFunctionTypeParameters = false;
     opts.hideTableKind = stringOpts.hideTableKind;
     opts.useLineBreaks = stringOpts.multiline;
+    opts.hideFunctionSelfArgument = stringOpts.hideFirstParameter;
     if (scope)
         opts.scope = *scope;
     auto functionString = Luau::toStringNamedFunction("", *ftv, opts);

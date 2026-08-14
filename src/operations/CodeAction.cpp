@@ -58,6 +58,78 @@ Luau::AstStat* findStatementContainingLocal(Luau::AstStatBlock* root, const Luau
     return finder.result;
 }
 
+// Visitor to find the class statement that contains a given location (e.g. the location of one
+// of its members' "private member requires all members to be qualified" diagnostics)
+struct FindClassStatContainingLocation : Luau::AstVisitor
+{
+    Luau::Location targetLocation;
+    Luau::AstStatClass* result = nullptr;
+
+    explicit FindClassStatContainingLocation(const Luau::Location& location)
+        : targetLocation(location)
+    {
+    }
+
+    bool visit(Luau::AstStatClass* node) override
+    {
+        if (node->location.containsClosed(targetLocation.begin))
+            result = node;
+        return true;
+    }
+};
+
+Luau::AstStatClass* findClassStatContainingLocation(Luau::AstStatBlock* root, const Luau::Location& location)
+{
+    FindClassStatContainingLocation finder(location);
+    root->visit(&finder);
+    return finder.result;
+}
+
+void generateClassMemberPublicFix(const lsp::DocumentUri& uri, Luau::AstStatClass* classStat, const TextDocument& textDocument,
+    const std::optional<lsp::Diagnostic>& diagnostic, std::vector<lsp::CodeAction>& result)
+{
+    std::vector<lsp::TextEdit> edits;
+
+    for (const auto& member : classStat->members)
+    {
+        std::optional<Luau::Position> insertAt;
+
+        if (const auto* prop = member.get_if<Luau::AstClassProperty>())
+        {
+            if (!prop->qualifierLocation.has_value())
+                insertAt = prop->nameLocation.begin;
+        }
+        else if (const auto* method = member.get_if<Luau::AstClassMethod>())
+        {
+            if (!method->qualifierLocation.has_value())
+                insertAt = method->keywordLocation.begin;
+        }
+
+        if (!insertAt)
+            continue;
+
+        lsp::Position pos = textDocument.convertPosition(*insertAt);
+        edits.push_back(lsp::TextEdit{{pos, pos}, "public "});
+    }
+
+    if (edits.empty())
+        return;
+
+    lsp::CodeAction action;
+    action.title = "Add 'public' to all implicitly public members";
+    action.kind = lsp::CodeActionKind::QuickFix;
+    action.isPreferred = true;
+
+    if (diagnostic)
+        action.diagnostics.push_back(*diagnostic);
+
+    lsp::WorkspaceEdit workspaceEdit;
+    workspaceEdit.changes.emplace(uri, edits);
+    action.edit = workspaceEdit;
+
+    result.push_back(action);
+}
+
 // Find a matching diagnostic from the client-provided diagnostics by location
 std::optional<lsp::Diagnostic> findMatchingDiagnostic(const std::vector<lsp::Diagnostic>& diagnostics, const lsp::Range& range)
 {
@@ -372,6 +444,14 @@ lsp::CodeActionResult WorkspaceFolder::codeAction(const lsp::CodeActionParams& p
                     action.edit = workspaceEdit;
 
                     result.push_back(action);
+                }
+            }
+            else if (const auto* syntaxError = Luau::get_if<Luau::SyntaxError>(&error.data))
+            {
+                if (syntaxError->message.find("Class contains a 'private' member") != std::string::npos)
+                {
+                    if (auto* classStat = findClassStatContainingLocation(sourceModule->root, error.location))
+                        generateClassMemberPublicFix(params.textDocument.uri, classStat, *textDocument, diagnostic, result);
                 }
             }
         }

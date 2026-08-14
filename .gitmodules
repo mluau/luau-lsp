@@ -1,3 +1,4 @@
 [submodule "luau"]
 	path = luau
 	url = git@github.com:mluau/luau.git
+	branch = classes-version-1

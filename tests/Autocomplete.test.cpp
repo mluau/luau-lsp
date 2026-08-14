@@ -6,6 +6,8 @@
 #include "LSP/Completion.hpp"
 #include "Platform/InstanceRequireAutoImporter.hpp"
 
+LUAU_FASTFLAG(DebugLuauUserDefinedClasses)
+
 std::optional<lsp::CompletionItem> getItem(const std::vector<lsp::CompletionItem>& items, const std::string& label)
 {
     for (const auto& item : items)
@@ -1361,6 +1363,31 @@ static std::vector<lsp::TextEdit> requireEndAutocompletionEdits(const TestClient
     REQUIRE_EQ(editParams.edit.changes.size(), 1);
 
     return editParams.edit.changes[uri];
+}
+
+TEST_CASE_FIXTURE(Fixture, "autocomplete_end_inside_class_method_function")
+{
+    ScopedFastFlag sff{FFlag::DebugLuauUserDefinedClasses, true};
+    client->globalConfig.completion.autocompleteEnd = true;
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Foo
+            function bar(self)
+                |
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::CompletionParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+    params.context = lsp::CompletionContext{};
+    params.context->triggerCharacter = "\n";
+
+    auto result = workspace.completion(params, nullptr);
+    auto edits = requireEndAutocompletionEdits(client.get(), uri);
+    REQUIRE_EQ(edits.size(), 1);
 }
 
 TEST_CASE_FIXTURE(Fixture, "autocomplete_end_for_incomplete_function")

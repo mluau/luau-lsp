@@ -517,7 +517,10 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_class_type
     auto result = workspace.hover(params, nullptr);
     REQUIRE(result);
     CHECK_EQ(
-        result->contents.value, codeBlock("luau", "type DocumentedClass = DocumentedClass") + kDocumentationBreaker + "This is a documented class\n");
+        result->contents.value,
+        codeBlock("luau", "extern type DocumentedClass\n    public function function1(self: DocumentedClass): number\n    public member1: string\nend") +
+            kDocumentationBreaker + "This is a documented class\n"
+    );
 }
 
 TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_variable_with_class_type")
@@ -534,7 +537,11 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_variable_w
 
     auto result = workspace.hover(params, nullptr);
     REQUIRE(result);
-    CHECK_EQ(result->contents.value, codeBlock("luau", "local x: DocumentedClass") + kDocumentationBreaker + "This is a documented class\n");
+    CHECK_EQ(
+        result->contents.value,
+        codeBlock("luau", "extern type DocumentedClass\n    public function function1(self: DocumentedClass): number\n    public member1: string\nend") +
+            kDocumentationBreaker + "This is a documented class\n"
+    );
 }
 
 TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_class_type_property")

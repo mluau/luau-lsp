@@ -141,6 +141,8 @@ void WorkspaceFolder::endAutocompletion(const lsp::CompletionParams& params)
             unclosedBlock = true;
         else if (auto* exprFunction = (*it)->as<Luau::AstExprFunction>(); exprFunction && !exprFunction->body->hasEnd)
             unclosedBlock = true;
+        else if (auto* statClass = (*it)->as<Luau::AstStatClass>(); statClass && !statClass->hasEnd)
+            unclosedBlock = true;
         if (auto* exprBlock = (*it)->as<Luau::AstStatBlock>(); exprBlock && !exprBlock->hasEnd)
             unclosedBlock = true;
 
@@ -388,10 +390,16 @@ static const char* sortText(const Luau::Frontend& frontend, const std::string& n
             return SortText::Deprioritized;
     }
 
+    bool isDunderName = types::isMetamethod(name) || name.rfind("__", 0) == 0;
+    bool isMethodEntry = entry.type.has_value() &&
+                          (Luau::get<Luau::FunctionType>(Luau::follow(*entry.type)) || Luau::isOverloadedFunction(*entry.type));
+
     if (entry.wrongIndexType)
         return SortText::WrongIndexType;
-    else if (entry.kind == Luau::AutocompleteEntryKind::Property && types::isMetamethod(name))
+    else if (entry.kind == Luau::AutocompleteEntryKind::Property && isDunderName)
         return SortText::MetatableIndex;
+    else if (entry.kind == Luau::AutocompleteEntryKind::Property && isMethodEntry)
+        return SortText::Methods;
     else if (entry.kind == Luau::AutocompleteEntryKind::Property)
         return SortText::TableProperties;
     else if (entry.kind == Luau::AutocompleteEntryKind::Keyword)

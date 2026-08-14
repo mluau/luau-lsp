@@ -82,10 +82,10 @@ TEST_CASE_FIXTURE(Fixture, "signature_help_shows_for_call_metamethod")
     REQUIRE(result->signatures[0].documentation);
     CHECK_EQ(result->signatures[0].documentation->value, "some documentation\n");
     REQUIRE(result->signatures[0].parameters);
-    REQUIRE_EQ(result->signatures[0].parameters->size(), 2);
+    REQUIRE_EQ(result->signatures[0].parameters->size(), 1);
 
-    CHECK_EQ(std::get<std::vector<size_t>>(result->signatures[0].parameters->at(0).label), std::vector<size_t>{13, 22});
-    CHECK_EQ(std::get<std::vector<size_t>>(result->signatures[0].parameters->at(1).label), std::vector<size_t>{24, 36});
+    // The first parameter (`self`) is implicitly filled in by the `__call` calling convention, so it's omitted here.
+    CHECK_EQ(std::get<std::vector<size_t>>(result->signatures[0].parameters->at(0).label), std::vector<size_t>{24, 36});
 }
 
 TEST_CASE_FIXTURE(Fixture, "signature_help_respects_cancellation")

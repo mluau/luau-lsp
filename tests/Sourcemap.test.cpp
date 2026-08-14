@@ -634,7 +634,18 @@ TEST_CASE_FIXTURE(Fixture, "sourcemap_updates_marks_files_as_dirty")
     auto hover = workspace.hover(params, nullptr);
 
     REQUIRE(hover);
-    CHECK_EQ(hover->contents.value, codeBlock("luau", "local part: Part"));
+    CHECK_EQ(
+        hover->contents.value,
+        codeBlock(
+            "luau",
+            "extern type Part\n"
+            "    public function FindFirstAncestor(self: Part, name: string): Instance?\n"
+            "    public function FindFirstChild(self: Part, name: string, recursive: boolean?): Instance?\n"
+            "    public Parent: Workspace\n"
+            "    public WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
+            "end"
+        )
+    );
 
     loadSourcemap(R"(
         {
@@ -1774,7 +1785,15 @@ TEST_CASE_FIXTURE(Fixture, "plugin_update_clears_cached_sourcemap_types_on_nodes
     auto hover = workspace.hover(params, nullptr);
 
     REQUIRE(hover);
-    CHECK_EQ(hover->contents.value, codeBlock("luau", "Part"));
+    CHECK_EQ(hover->contents.value, codeBlock(
+            "luau",
+            "extern type Part\n"
+            "    public function FindFirstAncestor(self: Part, name: string): Instance?\n"
+            "    public function FindFirstChild(self: Part, name: string, recursive: boolean?): Instance?\n"
+            "    public Parent: Instance\n"
+            "    public WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
+            "end"
+        ));
 
     auto pluginData = json::parse(R"(
         {
@@ -1804,7 +1823,15 @@ TEST_CASE_FIXTURE(Fixture, "plugin_update_clears_cached_sourcemap_types_on_nodes
 
     auto hover2 = workspace.hover(params, nullptr);
     REQUIRE(hover2);
-    CHECK_EQ(hover2->contents.value, codeBlock("luau", "Part"));
+    CHECK_EQ(hover2->contents.value, codeBlock(
+            "luau",
+            "extern type Part\n"
+            "    public function FindFirstAncestor(self: Part, name: string): Instance?\n"
+            "    public function FindFirstChild(self: Part, name: string, recursive: boolean?): Instance?\n"
+            "    public Parent: Instance\n"
+            "    public WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
+            "end"
+        ));
 }
 
 TEST_CASE_FIXTURE(Fixture, "source_node_get_script_context_resolution")

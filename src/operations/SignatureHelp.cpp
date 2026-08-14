@@ -118,10 +118,12 @@ std::optional<lsp::SignatureHelp> WorkspaceFolder::signatureHelp(
     std::optional<size_t> activeSignature = std::nullopt;
     std::vector<lsp::SignatureInformation> signatures{};
 
-    auto addSignature = [&](const Luau::TypeId& ty, const Luau::FunctionType* ftv, bool isOverloaded = false)
+    auto addSignature = [&](const Luau::TypeId& ty, const Luau::FunctionType* ftv, bool isOverloaded = false, bool isCallMetamethod = false)
     {
         // Create the whole label
-        std::string label = types::toStringNamedFunction(module, ftv, candidate->func, scope, opts);
+        auto labelOpts = opts;
+        labelOpts.hideFirstParameter = isCallMetamethod;
+        std::string label = types::toStringNamedFunction(module, ftv, candidate->func, scope, labelOpts);
         lsp::MarkupContent documentation{lsp::MarkupKind::Markdown, ""};
 
         auto baseDocumentationSymbol = documentationSymbol;
@@ -158,8 +160,9 @@ std::optional<lsp::SignatureHelp> WorkspaceFolder::signatureHelp(
 
         for (; it != Luau::end(ftv->argTypes); it++, idx++)
         {
-            // If the function has self, and the caller has called as a method (i.e., :), then omit the self parameter
-            if (idx == 0 && candidate->self)
+            // If the function has self, and the caller has called as a method (i.e., :), then omit the self parameter.
+            // Similarly, a `__call` metamethod's first parameter is implicitly filled with the callee value.
+            if (idx == 0 && (candidate->self || isCallMetamethod))
                 continue;
 
             // Show parameter documentation
@@ -249,7 +252,7 @@ std::optional<lsp::SignatureHelp> WorkspaceFolder::signatureHelp(
     // Handle __call metamethod
     if (const auto metamethod = findCallMetamethod(followedId))
         if (auto ftv = Luau::get<Luau::FunctionType>(Luau::follow(*metamethod)))
-            addSignature(*metamethod, ftv);
+            addSignature(*metamethod, ftv, /* isOverloaded = */ false, /* isCallMetamethod = */ true);
 
     lsp::SignatureHelp help = lsp::SignatureHelp{signatures, activeSignature.value_or(0), activeParameter};
     platform->handleSignatureHelp(*textDocument, *sourceModule, position, help);
