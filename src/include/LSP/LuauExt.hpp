@@ -30,6 +30,9 @@ struct ToStringNamedFunctionOpts
     bool hideTableKind = false;
     bool multiline = false;
     bool hideFirstParameter = false;
+    // If true, the first parameter (`self`) is printed bare (`self`) with no type annotation,
+    // rather than being hidden entirely. Ignored unless hideFirstParameter is false.
+    bool hideFirstParameterType = false;
 };
 
 std::string toStringNamedFunction(const Luau::ModulePtr& module, const Luau::FunctionType* ftv, const NameOrExpr nameOrFuncExpr,

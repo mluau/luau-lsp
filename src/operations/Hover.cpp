@@ -129,12 +129,24 @@ static bool isStaticMethod(const Luau::AstClassMethod* method)
     return method->function->args.size == 0 || method->function->args.data[0]->name != "self";
 }
 
-// Formats a method as "function name(...): ret", hiding `self` if present.
+// Formats a method as "function name(...): ret", printing `self` bare (no type annotation) if
+// present -- the reader already knows the self type from the class/object header above.
+//
+// `et` is the class/object we're actually hovering over. For a generic class (`class Box<T> ...
+// end`), this is the *instantiated* type (e.g. `T` substituted with `string`), while
+// `module->astTypes` only ever holds the type as declared, with `T` unsubstituted -- so we prefer
+// looking the method up on `et->props` first and only fall back to the AST-inferred type if it's
+// not there.
 static std::string formatMethodLine(
-    const Luau::ModulePtr& module, const Luau::AstClassMethod* method, const Luau::ScopePtr& scope, bool showTableKinds
+    const Luau::ModulePtr& module, const Luau::ExternType* et, const Luau::AstClassMethod* method, const Luau::ScopePtr& scope, bool showTableKinds
 )
 {
-    auto fnTy = module->astTypes.find(method->function);
+    std::optional<Luau::TypeId> fnTy;
+    if (auto it = et->props.find(method->functionName.value); it != et->props.end() && it->second.readTy)
+        fnTy = it->second.readTy;
+    else if (auto astTy = module->astTypes.find(method->function))
+        fnTy = *astTy;
+
     if (!fnTy)
         return "";
 
@@ -144,7 +156,7 @@ static std::string formatMethodLine(
 
     types::ToStringNamedFunctionOpts funcOpts;
     funcOpts.hideTableKind = !showTableKinds;
-    funcOpts.hideFirstParameter = method->function->args.size > 0 && method->function->args.data[0]->name == "self";
+    funcOpts.hideFirstParameterType = method->function->args.size > 0 && method->function->args.data[0]->name == "self";
     return types::toStringNamedFunction(module, ftv, method->functionName.value, scope, funcOpts);
 }
 
@@ -224,7 +236,13 @@ static std::optional<std::string> buildClassFieldSummary(
                     continue;
 
                 std::string line = "    public " + std::string(prop->name.value) + ": ";
-                if (prop->ty)
+                // Prefer the instantiated type from `et->props` over the AST-resolved type of the
+                // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
+                // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
+                // equivalent handling of methods.
+                if (auto it = et->props.find(prop->name.value); it != et->props.end() && it->second.readTy)
+                    line += Luau::toString(Luau::follow(*it->second.readTy));
+                else if (prop->ty)
                 {
                     if (auto resolvedTy = module->astResolvedTypes.find(prop->ty))
                         line += Luau::toString(Luau::follow(*resolvedTy));
@@ -260,7 +278,7 @@ static std::optional<std::string> buildClassFieldSummary(
         if (memberLines.size() >= kMaxMembers)
             continue;
 
-        if (std::string line = formatMethodLine(module, method, scope, showTableKinds); !line.empty())
+        if (std::string line = formatMethodLine(module, et, method, scope, showTableKinds); !line.empty())
             memberLines.push_back("    public " + line);
     }
 
@@ -280,12 +298,14 @@ static std::optional<std::string> buildClassFieldSummary(
 
 // Builds a short summary of a "declare extern type"-style extern type's members, formatted like:
 // extern type Instance
-//     public Name: string
-//     public function Clone(): Instance
+//     Name: string
+//     function Clone(): Instance
 //     -- ⋯ 2 more members
 // end
 // Extern types have no factory/constructor (they're provided by the host), so unlike
 // buildClassFieldSummary, there's only ever the "object" shape -- no separate class-value variant.
+// Unlike `class`, `declare extern type` has no public/private visibility syntax, so member lines
+// aren't prefixed with either.
 static std::string buildExternTypeSummary(
     const Luau::ModulePtr& module, Luau::TypeId typeId, const Luau::ExternType* et, const Luau::ScopePtr& scope, bool showTableKinds
 )
@@ -307,11 +327,15 @@ static std::string buildExternTypeSummary(
         if (!ty)
             continue;
 
-        std::string line = "    public ";
+        std::string line = "    ";
         if (auto ftv = Luau::get<Luau::FunctionType>(Luau::follow(*ty)))
         {
             types::ToStringNamedFunctionOpts funcOpts;
             funcOpts.hideTableKind = !showTableKinds;
+            // Methods are declared as `function Name(self: Instance, ...): ret` -- print the
+            // leading `self` parameter bare (no type), matching how class instance methods are
+            // displayed; the reader already knows the self type from the header above.
+            funcOpts.hideFirstParameterType = !ftv->argNames.empty() && ftv->argNames[0] && ftv->argNames[0]->name == "self";
             line += types::toStringNamedFunction(module, ftv, name, scope, funcOpts);
         }
         else
