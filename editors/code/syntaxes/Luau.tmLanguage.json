@@ -32,6 +32,15 @@
       "include": "#const-declaration"
     },
     {
+      "include": "#class-declaration"
+    },
+    {
+      "include": "#public-declaration"
+    },
+    {
+      "include": "#private-declaration"
+    },
+    {
       "include": "#for-loop"
     },
     {
@@ -76,15 +85,24 @@
   ],
   "repository": {
     "function-definition": {
-      "begin": "\\b(?:(local)\\s+|(const)\\s+)?(function)\\b(?![,:])",
+      "begin": "\\b(?:(export)\\s+)?(?:(public)\\s+|(private)\\s+)?(?:(local)\\s+|(const)\\s+)?(function)\\b(?![,:])",
       "beginCaptures": {
         "1": {
-          "name": "storage.modifier.local.luau"
+          "name": "storage.modifier.visibility.luau"
         },
         "2": {
-          "name": "storage.modifier.const.luau"
+          "name": "storage.modifier.access.luau"
         },
         "3": {
+          "name": "storage.modifier.access.luau"
+        },
+        "4": {
+          "name": "storage.modifier.local.luau"
+        },
+        "5": {
+          "name": "storage.modifier.const.luau"
+        },
+        "6": {
           "name": "keyword.control.luau"
         }
       },
@@ -154,10 +172,13 @@
       ]
     },
     "local-declaration": {
-      "begin": "\\b(local)\\b",
+      "begin": "\\b(?:(export)\\s+)?(local)\\b",
       "end": "(?=\\s*do\\b|\\s*[=;]|\\s*$)",
       "beginCaptures": {
         "1": {
+          "name": "storage.modifier.visibility.luau"
+        },
+        "2": {
           "name": "storage.modifier.local.luau"
         }
       },
@@ -193,10 +214,125 @@
       ]
     },
     "const-declaration": {
-      "begin": "\\b(const)\\b",
+      "begin": "\\b(?:(export)\\s+)?(const)\\b",
       "end": "(?=\\s*[=;]|\\s*$)",
       "beginCaptures": {
         "1": {
+          "name": "storage.modifier.visibility.luau"
+        },
+        "2": {
+          "name": "storage.modifier.const.luau"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#attribute"
+        },
+        {
+          "begin": "(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.type.luau"
+            }
+          },
+          "end": "(?=\\s*[=;,]|\\s*$)",
+          "patterns": [
+            {
+              "include": "#type_literal"
+            }
+          ]
+        },
+        {
+          "name": "variable.other.constant.luau",
+          "match": "\\b([A-Z_][A-Z0-9_]*)\\b"
+        },
+        {
+          "name": "variable.other.readwrite.luau",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b"
+        }
+      ]
+    },
+    "class-declaration": {
+      "begin": "(?<![^.]\\.|:)\\b(?:(export)\\s+)?(class)\\s+(?:([\\w]+))\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.visibility.luau"
+        },
+        "2": {
+          "name": "keyword.control.luau"
+        },
+        "3": {
+          "name": "entity.name.type.luau"
+        }
+      },
+      "end": "(?<=[a-zA-Z0-9_>])(?!\\s*<)",
+      "name": "meta.class.luau",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#generics-declaration"
+        },
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "name": "entity.name.type.class.luau"
+        }
+      ]
+    },
+    "public-declaration": {
+      "begin": "\\b(public)\\b(?:\\s+(const)\\b)?",
+      "end": "(?=\\s*[=;]|\\s*$)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.access.luau"
+        },
+        "2": {
+          "name": "storage.modifier.const.luau"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#attribute"
+        },
+        {
+          "begin": "(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.operator.type.luau"
+            }
+          },
+          "end": "(?=\\s*[=;,]|\\s*$)",
+          "patterns": [
+            {
+              "include": "#type_literal"
+            }
+          ]
+        },
+        {
+          "name": "variable.other.constant.luau",
+          "match": "\\b([A-Z_][A-Z0-9_]*)\\b"
+        },
+        {
+          "name": "variable.other.readwrite.luau",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b"
+        }
+      ]
+    },
+    "private-declaration": {
+      "begin": "\\b(private)\\b(?:\\s+(const)\\b)?",
+      "end": "(?=\\s*[=;]|\\s*$)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.access.luau"
+        },
+        "2": {
           "name": "storage.modifier.const.luau"
         }
       },
@@ -543,6 +679,10 @@
         {
           "match": "(?<![^.]\\.|:)\\b(nil(?!:))\\b",
           "name": "constant.language.nil.luau"
+        },
+        {
+          "match": "(?<![^.]\\.|:)\\b(none(?!:))\\b",
+          "name": "constant.language.none.luau"
         }
       ]
     },
@@ -733,7 +873,7 @@
     },
     "type-alias-declaration": {
       "begin": "(?<![^.]\\.|:)\\b(?:(export)\\s+)?(type)\\b(?=\\s+(?!function\\b)[a-zA-Z_][a-zA-Z0-9_]*)",
-      "end": "(?=[),}\\]](?!\\s*[&|]))|(?=\\s*;)|(?=\\s*(?:[*+%^]|\\/\\/?|(?<!\\.)\\.\\.(?!\\.)|-(?![->`])|~=|==))|(?=\\s*\\b(?:and|or|break|const|continue|do|else|elseif|end|for|function|if|in|local|repeat|return|then|until|while)\\b)|(?=^\\s*$)|(?=^\\s*(?:@|\\b(?:export\\s+)?type\\b))|(?=^\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:(?:[+\\-*/%^]|\\.\\.)?=(?!=)|\\(|\\[|:))",
+      "end": "(?=[),}\\]](?!\\s*[&|]))|(?=\\s*;)|(?=\\s*(?:[*+%^]|\\/\\/?|(?<!\\.)\\.\\.(?!\\.)|-(?![->`])|~=|==))|(?=\\s*\\b(?:and|or|break|class|const|continue|do|else|elseif|end|for|function|if|in|local|public|private|repeat|return|then|until|while)\\b)|(?=^\\s*$)|(?=^\\s*(?:@|\\b(?:export\\s+)?type\\b))|(?=^\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:(?:[+\\-*/%^]|\\.\\.)?=(?!=)|\\(|\\[|:))",
       "beginCaptures": {
         "1": {
           "name": "storage.modifier.visibility.luau"
@@ -771,7 +911,7 @@
           "name": "keyword.operator.typecast.luau"
         }
       },
-      "end": "(?=[),}\\]](?!\\s*[&|]))|(?=\\s*;)|(?=\\s*(?:[*+%^]|\\/\\/?|(?<!\\.)\\.\\.(?!\\.)|-(?![->`])|~=|==))|(?=\\s*\\b(?:and|or|break|const|continue|do|else|elseif|end|for|function|if|in|local|repeat|return|then|until|while)\\b)|(?=^\\s*$)|(?=^\\s*(?:@|\\b(?:export\\s+)?type\\b))|(?=^\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:(?:[+\\-*/%^]|\\.\\.)?=(?!=)|\\(|\\[|:))",
+      "end": "(?=[),}\\]](?!\\s*[&|]))|(?=\\s*;)|(?=\\s*(?:[*+%^]|\\/\\/?|(?<!\\.)\\.\\.(?!\\.)|-(?![->`])|~=|==))|(?=\\s*\\b(?:and|or|break|class|const|continue|do|else|elseif|end|for|function|if|in|local|public|repeat|return|then|until|while)\\b)|(?=^\\s*$)|(?=^\\s*(?:@|\\b(?:export\\s+)?type\\b))|(?=^\\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:(?:[+\\-*/%^]|\\.\\.)?=(?!=)|\\(|\\[|:))",
       "patterns": [
         {
           "include": "#type_literal"
