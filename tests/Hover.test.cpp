@@ -2,6 +2,9 @@
 #include "Fixture.h"
 #include "LSP/DocumentationParser.hpp"
 
+LUAU_FASTFLAG(DebugLuauUserDefinedClasses)
+LUAU_FASTFLAG(LuauBetterUserDefinedClasses)
+
 TEST_SUITE_BEGIN("Hover");
 
 TEST_CASE_FIXTURE(Fixture, "show_string_length_on_hover")
@@ -778,6 +781,65 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_for_index_member_of_setmetata
     auto result = workspace.hover(params, nullptr);
     REQUIRE(result);
     CHECK(result->contents.value.find("Documentation for prop_b.") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_const_class_property_shows_const")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Cat
+            public const |name: string
+
+            function __init(self, name: string)
+                self.name = name
+            end
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, codeBlock("luau", "public const name: string"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_class_name_shows_class_value_summary_with_constructor")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class |Cat
+            public const name: string
+            private age: number
+
+            function __init(self, name: string, age: number)
+                self.name = name
+                self.age = age
+            end
+
+            public function meow(self): string
+                return self.name
+            end
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("class Cat(name: string, age: number)") != std::string::npos);
+    CHECK(result->contents.value.find("object of") == std::string::npos);
 }
 
 TEST_SUITE_END();

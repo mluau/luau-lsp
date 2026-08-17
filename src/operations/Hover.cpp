@@ -160,15 +160,42 @@ static std::string formatMethodLine(
     return types::toStringNamedFunction(module, ftv, method->functionName.value, scope, funcOpts);
 }
 
+// Extracts just the "(args)" portion from a named-function string like "function (x: number): Foo",
+// dropping the leading "function " keyword/name and the trailing ": ReturnType". Used to fold a
+// class's constructor signature directly into its header line (`class Foo(x: number)`), matching
+// how the class is actually invoked to construct an instance (`Foo(x)`), rather than printing it
+// as if it were a member (`Foo(x: number): Foo`) with a redundant, already-implied return type.
+static std::string extractArgList(const std::string& namedFunctionString)
+{
+    auto openParen = namedFunctionString.find('(');
+    if (openParen == std::string::npos)
+        return "";
+
+    int depth = 0;
+    for (size_t i = openParen; i < namedFunctionString.size(); i++)
+    {
+        if (namedFunctionString[i] == '(')
+            depth++;
+        else if (namedFunctionString[i] == ')')
+        {
+            depth--;
+            if (depth == 0)
+                return namedFunctionString.substr(openParen, i - openParen + 1);
+        }
+    }
+    return "";
+}
+
 // Builds a short summary of a class's public API, formatted like a (possibly truncated) class
-// body. For the class value itself, this is the constructor and any static (self-less) public
+// body. For the class value itself, this is the constructor (folded into the header, since
+// constructing an instance means literally calling the class) and any static (self-less) public
 // functions; for an object (instance), this is the public fields and instance methods, e.g.
 //
-// class Cat             |  class Cat
-//     Cat(name: string) |      public name: string
-//     public function zero(): Cat  |      public function meow(self): string
-//     -- ⋯ 2 more members     |      -- ⋯ 2 more members
-// end                   |  end
+// class Cat(name: string)      |  class Cat
+//     public function zero(): Cat  |      public name: string
+//     -- ⋯ 2 more members     |      public function meow(self): string
+// end                   |      -- ⋯ 2 more members
+//                        |  end
 //
 // The object case always opens with `class Name ... end` (valid Luau syntax, for highlighting);
 // the caller is responsible for prefixing the "object of X" prose label outside the code block.
@@ -201,8 +228,18 @@ static std::optional<std::string> buildClassFieldSummary(
     // The object case's "object of X" label is prose, not valid Luau syntax, so the caller
     // prepends it outside the code block; the code block itself always opens with valid
     // `class Name<Generics> ... end` syntax so it can be syntax-highlighted properly.
-    std::string header = "class " + displayName + "\n";
+    std::string header = "class " + displayName;
     bool hasConstructorLine = false;
+
+    bool hasCustomInit = false;
+    for (const auto& member : finder.result->members)
+    {
+        if (const auto* method = member.get_if<Luau::AstClassMethod>(); method && method->functionName == "__init")
+        {
+            hasCustomInit = true;
+            break;
+        }
+    }
 
     if (isClassValue && et->metatable)
     {
@@ -212,15 +249,69 @@ static std::optional<std::string> buildClassFieldSummary(
             {
                 if (auto ctorFtv = Luau::get<Luau::FunctionType>(Luau::follow(*it->second.readTy)))
                 {
-                    types::ToStringNamedFunctionOpts funcOpts;
-                    funcOpts.hideTableKind = !showTableKinds;
-                    funcOpts.hideFirstParameter = true;
-                    header += "    " + types::toStringNamedFunction(module, ctorFtv, std::string(et->name), scope, funcOpts) + "\n";
-                    hasConstructorLine = true;
+                    if (hasCustomInit)
+                    {
+                        types::ToStringNamedFunctionOpts funcOpts;
+                        funcOpts.hideTableKind = !showTableKinds;
+                        funcOpts.hideFirstParameter = true;
+                        std::string ctorString = types::toStringNamedFunction(module, ctorFtv, std::string(""), scope, funcOpts);
+                        header += extractArgList(ctorString);
+                        hasConstructorLine = true;
+                    }
+                    else
+                    {
+                        // No custom `__init` -- the class gets an auto-generated ("POD")
+                        // constructor that takes a single table of the class's fields, called as
+                        // `Name{ field = value, ... }` (a table-literal call, not `Name(...)` --
+                        // there are no parens to speak of). Show it as a struct-like field list
+                        // rather than folding it into the header as a single argument list, which
+                        // gets unreadable once there's more than one or two fields.
+                        auto [argHead, argTail] = Luau::flatten(ctorFtv->argTypes);
+                        if (argHead.size() >= 2)
+                        {
+                            if (auto ctorArgTable = Luau::get<Luau::TableType>(Luau::follow(argHead[1])))
+                            {
+                                // Private fields still appear in the `{ ... }` block -- there's no
+                                // other way to set them without a custom `__init`, so leaving them
+                                // out would hide the fact that they must be passed to construct the
+                                // object. But the `{ ... }` table shape itself has no way to express
+                                // visibility, so also list private fields again separately below the
+                                // table, marked `private`, so their visibility isn't lost.
+                                std::string fields;
+                                std::string privateFields;
+                                for (const auto& fieldMember : finder.result->members)
+                                {
+                                    const auto* prop = fieldMember.get_if<Luau::AstClassProperty>();
+                                    if (!prop)
+                                        continue;
+
+                                    auto propIt = ctorArgTable->props.find(prop->name.value);
+                                    if (propIt == ctorArgTable->props.end() || !propIt->second.readTy)
+                                        continue;
+
+                                    std::string fieldType = Luau::toString(Luau::follow(*propIt->second.readTy));
+                                    std::string constPrefix = prop->isConst ? "const " : "";
+
+                                    fields += "    " + constPrefix + std::string(prop->name.value) + ": " + fieldType + ",\n";
+
+                                    if (prop->visibility == Luau::AstClassMemberVisibility::Private)
+                                        privateFields += "    private " + constPrefix + std::string(prop->name.value) + ": " + fieldType + "\n";
+                                }
+
+                                if (!fields.empty() || !privateFields.empty())
+                                {
+                                    header += " {\n" + fields + "}\n" + privateFields;
+                                    header.pop_back(); // drop the trailing '\n' -- the caller adds its own below
+                                    hasConstructorLine = true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+    header += "\n";
 
     for (const auto& member : finder.result->members)
     {
@@ -235,7 +326,7 @@ static std::optional<std::string> buildClassFieldSummary(
                 if (memberLines.size() >= kMaxMembers)
                     continue;
 
-                std::string line = "    public " + std::string(prop->name.value) + ": ";
+                std::string line = std::string("    public ") + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
                 // Prefer the instantiated type from `et->props` over the AST-resolved type of the
                 // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
                 // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
@@ -404,8 +495,22 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
 
     if (auto classStat = node->as<Luau::AstStatClass>())
     {
+        // Hovering over the class's own name (e.g. `class |Foo ... end`) -- show a summary of the
+        // class value itself, same as hovering over a reference to the class elsewhere. Note this
+        // is a *value* lookup, not a type lookup: `Foo` in the type namespace refers to instances
+        // of the class (the `object` type), while the class statement itself binds `Foo` in the
+        // value namespace to the class value (the `class` type, with a `__call` constructor).
+        if (classStat->name->location.containsClosed(position))
+        {
+            if (auto classValueTy = scope->lookup(classStat->name))
+                type = *classValueTy;
+        }
+
         for (const auto& member : classStat->members)
         {
+            if (type)
+                break;
+
             Luau::Location nameLocation = Luau::visit(
                 [](auto&& m) -> Luau::Location
                 {
@@ -428,6 +533,9 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
 
             if (const auto* prop = member.get_if<Luau::AstClassProperty>())
             {
+                if (prop->isConst)
+                    classMemberPrefix = *classMemberPrefix + "const ";
+
                 classMemberName = prop->name.value;
                 if (prop->ty)
                 {

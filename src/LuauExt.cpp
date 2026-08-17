@@ -436,7 +436,15 @@ lsp::Diagnostic createTypeErrorDiagnostic(const Luau::TypeError& error, Luau::Fi
 {
     std::string message;
     if (const auto* syntaxError = Luau::get_if<Luau::SyntaxError>(&error.data))
+    {
         message = "SyntaxError: " + syntaxError->message;
+
+        // The LSP offers a quick fix for this specific error (see generateClassMemberPublicFix in
+        // CodeAction.cpp) -- hint at it here, since this is LSP-specific UX and doesn't belong in
+        // the parser's own error message.
+        if (syntaxError->message.find("Class contains a 'private' member") != std::string::npos)
+            message += " (quick fix available)";
+    }
     else
         message = "TypeError: " + Luau::toString(error, Luau::TypeErrorToStringOptions{fileResolver});
 
