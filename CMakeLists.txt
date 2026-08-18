@@ -205,7 +205,8 @@ target_compile_definitions(Luau.LanguageServer PUBLIC
 )
 target_include_directories(Luau.LanguageServer PUBLIC src/include)
 target_include_directories(Luau.LanguageServer SYSTEM PUBLIC ${EXTERN_INCLUDES})
-target_link_libraries(Luau.LanguageServer PRIVATE Luau.Ast Luau.Analysis Luau.Compiler Luau.VM Luau.CodeGen)
+target_link_libraries(Luau.LanguageServer PRIVATE Luau.Ast Luau.Analysis Luau.Compiler Luau.CodeGen)
+target_link_libraries(Luau.LanguageServer PUBLIC Luau.VM)
 
 set_target_properties(Luau.LanguageServer.CLI PROPERTIES OUTPUT_NAME luau-lsp)
 target_compile_options(Luau.LanguageServer.CLI PRIVATE ${LUAU_LSP_OPTIONS})

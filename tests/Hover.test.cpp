@@ -521,8 +521,8 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_class_type
     REQUIRE(result);
     CHECK_EQ(
         result->contents.value,
-        codeBlock("luau", "extern type DocumentedClass\n    public function function1(self: DocumentedClass): number\n    public member1: string\nend") +
-            kDocumentationBreaker + "This is a documented class\n"
+        codeBlock("luau", "extern type DocumentedClass\n    function function1(self): number\n    member1: string\nend") + kDocumentationBreaker +
+            "This is a documented class\n"
     );
 }
 
@@ -542,8 +542,8 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_variable_w
     REQUIRE(result);
     CHECK_EQ(
         result->contents.value,
-        codeBlock("luau", "extern type DocumentedClass\n    public function function1(self: DocumentedClass): number\n    public member1: string\nend") +
-            kDocumentationBreaker + "This is a documented class\n"
+        codeBlock("luau", "extern type DocumentedClass\n    function function1(self): number\n    member1: string\nend") + kDocumentationBreaker +
+            "This is a documented class\n"
     );
 }
 

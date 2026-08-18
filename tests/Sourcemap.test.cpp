@@ -639,10 +639,10 @@ TEST_CASE_FIXTURE(Fixture, "sourcemap_updates_marks_files_as_dirty")
         codeBlock(
             "luau",
             "extern type Part\n"
-            "    public function FindFirstAncestor(self: Part, name: string): Instance?\n"
-            "    public function FindFirstChild(self: Part, name: string, recursive: boolean?): Instance?\n"
-            "    public Parent: Workspace\n"
-            "    public WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
+            "    function FindFirstAncestor(self, name: string): Instance?\n"
+            "    function FindFirstChild(self, name: string, recursive: boolean?): Instance?\n"
+            "    Parent: Workspace\n"
+            "    WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
             "end"
         )
     );
@@ -1788,10 +1788,10 @@ TEST_CASE_FIXTURE(Fixture, "plugin_update_clears_cached_sourcemap_types_on_nodes
     CHECK_EQ(hover->contents.value, codeBlock(
             "luau",
             "extern type Part\n"
-            "    public function FindFirstAncestor(self: Part, name: string): Instance?\n"
-            "    public function FindFirstChild(self: Part, name: string, recursive: boolean?): Instance?\n"
-            "    public Parent: Instance\n"
-            "    public WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
+            "    function FindFirstAncestor(self, name: string): Instance?\n"
+            "    function FindFirstChild(self, name: string, recursive: boolean?): Instance?\n"
+            "    Parent: Instance\n"
+            "    WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
             "end"
         ));
 
@@ -1826,10 +1826,10 @@ TEST_CASE_FIXTURE(Fixture, "plugin_update_clears_cached_sourcemap_types_on_nodes
     CHECK_EQ(hover2->contents.value, codeBlock(
             "luau",
             "extern type Part\n"
-            "    public function FindFirstAncestor(self: Part, name: string): Instance?\n"
-            "    public function FindFirstChild(self: Part, name: string, recursive: boolean?): Instance?\n"
-            "    public Parent: Instance\n"
-            "    public WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
+            "    function FindFirstAncestor(self, name: string): Instance?\n"
+            "    function FindFirstChild(self, name: string, recursive: boolean?): Instance?\n"
+            "    Parent: Instance\n"
+            "    WaitForChild: ((Part, string) -> Instance) & ((Part, string, number) -> Instance?)\n"
             "end"
         ));
 }

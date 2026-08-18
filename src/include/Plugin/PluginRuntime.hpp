@@ -2,13 +2,13 @@
 #include "Plugin/PluginTypes.hpp"
 #include "LSP/Uri.hpp"
 #include "Luau/NotNull.h"
+#include "lua.h"
 #include <memory>
 #include <optional>
 #include <string>
 #include <variant>
 #include <vector>
 
-struct lua_State;
 class WorkspaceFolder;
 
 namespace Luau::LanguageServer::Plugin
@@ -26,9 +26,6 @@ struct MemoryAllocator
 // Executes Luau plugin scripts in a sandboxed environment
 class PluginRuntime
 {
-public:
-    static constexpr int LUA_NOREF = -1;
-
 private:
     MemoryAllocator memoryAllocator;
     std::unique_ptr<lua_State, void (*)(lua_State*)> state;
