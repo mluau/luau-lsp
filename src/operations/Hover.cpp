@@ -188,14 +188,18 @@ static std::string extractArgList(const std::string& namedFunctionString)
 
 // Builds a short summary of a class's public API, formatted like a (possibly truncated) class
 // body. For the class value itself, this is the constructor (folded into the header, since
-// constructing an instance means literally calling the class) and any static (self-less) public
-// functions; for an object (instance), this is the public fields and instance methods, e.g.
+// constructing an instance means literally calling the class), any static (self-less) public
+// functions, and -- below those, as a separate section -- the public fields and instance methods
+// available on objects of the class; for an object (instance), it's just the public fields and
+// instance methods, e.g.
 //
 // class Cat(name: string)      |  class Cat
 //     public function zero(): Cat  |      public name: string
-//     -- ⋯ 2 more members     |      public function meow(self): string
-// end                   |      -- ⋯ 2 more members
-//                        |  end
+//                        |      public function meow(self): string
+//     public name: string     |      -- ⋯ 2 more members
+//     public function meow(self): string |  end
+//     -- ⋯ 2 more members     |
+// end                   |
 //
 // The object case always opens with `class Name ... end` (valid Luau syntax, for highlighting);
 // the caller is responsible for prefixing the "object of X" prose label outside the code block.
@@ -221,6 +225,9 @@ static std::optional<std::string> buildClassFieldSummary(
     static constexpr size_t kMaxMembers = 5;
     std::vector<std::string> memberLines;
     size_t totalPublicMembers = 0;
+    // Track public members of objects of this class as well in addition to static members
+    std::vector<std::string> instanceMemberLines;
+    size_t totalInstanceMembers = 0;
 
     // Use the type's own toString (rather than the bare `et->name`) so that generic parameters
     // display correctly, e.g. "class Box<number>".
@@ -315,36 +322,44 @@ static std::optional<std::string> buildClassFieldSummary(
 
     for (const auto& member : finder.result->members)
     {
-        if (!isClassValue)
+        if (const auto* prop = member.get_if<Luau::AstClassProperty>())
         {
-            if (const auto* prop = member.get_if<Luau::AstClassProperty>())
+            if (prop->visibility == Luau::AstClassMemberVisibility::Private)
+                continue;
+
+            std::string line = std::string("    public ") + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
+            // Prefer the instantiated type from `et->props` over the AST-resolved type of the
+            // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
+            // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
+            // equivalent handling of methods.
+            if (auto it = et->props.find(prop->name.value); it != et->props.end() && it->second.readTy)
+                line += Luau::toString(Luau::follow(*it->second.readTy));
+            else if (prop->ty)
             {
-                if (prop->visibility == Luau::AstClassMemberVisibility::Private)
-                    continue;
-
-                totalPublicMembers++;
-                if (memberLines.size() >= kMaxMembers)
-                    continue;
-
-                std::string line = std::string("    public ") + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
-                // Prefer the instantiated type from `et->props` over the AST-resolved type of the
-                // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
-                // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
-                // equivalent handling of methods.
-                if (auto it = et->props.find(prop->name.value); it != et->props.end() && it->second.readTy)
-                    line += Luau::toString(Luau::follow(*it->second.readTy));
-                else if (prop->ty)
-                {
-                    if (auto resolvedTy = module->astResolvedTypes.find(prop->ty))
-                        line += Luau::toString(Luau::follow(*resolvedTy));
-                    else
-                        line += "any";
-                }
+                if (auto resolvedTy = module->astResolvedTypes.find(prop->ty))
+                    line += Luau::toString(Luau::follow(*resolvedTy));
                 else
                     line += "any";
-                memberLines.push_back(line);
-                continue;
             }
+            else
+                line += "any";
+
+            if (isClassValue)
+            {
+                if (!hasCustomInit)
+                    continue;
+
+                totalInstanceMembers++;
+                if (instanceMemberLines.size() < kMaxMembers)
+                    instanceMemberLines.push_back(line);
+            }
+            else
+            {
+                totalPublicMembers++;
+                if (memberLines.size() < kMaxMembers)
+                    memberLines.push_back(line);
+            }
+            continue;
         }
 
         const auto* method = member.get_if<Luau::AstClassMethod>();
@@ -360,20 +375,37 @@ static std::optional<std::string> buildClassFieldSummary(
         if (isDunderName(method->functionName.value))
             continue;
 
-        // The class value's summary shows static (self-less) functions; the object's summary
-        // shows instance methods.
-        if (isStaticMethod(method) != isClassValue)
+        bool isStatic = isStaticMethod(method);
+
+        // The object's summary never shows static (self-less) functions -- they're not callable
+        // on an instance.
+        if (!isClassValue && isStatic)
             continue;
 
-        totalPublicMembers++;
-        if (memberLines.size() >= kMaxMembers)
+        std::string line = formatMethodLine(module, et, method, scope, showTableKinds);
+        if (line.empty())
             continue;
+        line = "    public " + line;
 
-        if (std::string line = formatMethodLine(module, et, method, scope, showTableKinds); !line.empty())
-            memberLines.push_back("    public " + line);
+        // The class value's summary shows static functions in the primary section (alongside the
+        // constructor) and instance methods (methods callable on objects of the class) in a
+        // separate section below; the object's summary only ever has instance methods, so they go
+        // in the primary section.
+        if (isClassValue && !isStatic)
+        {
+            totalInstanceMembers++;
+            if (instanceMemberLines.size() < kMaxMembers)
+                instanceMemberLines.push_back(line);
+        }
+        else
+        {
+            totalPublicMembers++;
+            if (memberLines.size() < kMaxMembers)
+                memberLines.push_back(line);
+        }
     }
 
-    if (memberLines.empty() && !hasConstructorLine)
+    if (memberLines.empty() && !hasConstructorLine && instanceMemberLines.empty())
         return std::nullopt;
 
     std::string summary = header;
@@ -382,6 +414,20 @@ static std::optional<std::string> buildClassFieldSummary(
     if (totalPublicMembers > memberLines.size())
         summary += "    -- ⋯ " + std::to_string(totalPublicMembers - memberLines.size()) + " more member" +
                    (totalPublicMembers - memberLines.size() == 1 ? "" : "s") + "\n";
+
+    if (isClassValue && !instanceMemberLines.empty())
+    {
+        // Only insert a blank-line separator if there's a preceding static-member section to
+        // separate from -- the header (constructor) already ends with its own newline, so a
+        // constructor-only class would otherwise get a spurious blank line before instance members.
+        if (!memberLines.empty())
+            summary += "\n";
+        for (const auto& line : instanceMemberLines)
+            summary += line + "\n";
+        if (totalInstanceMembers > instanceMemberLines.size())
+            summary += "    -- ⋯ " + std::to_string(totalInstanceMembers - instanceMemberLines.size()) + " more member" +
+                       (totalInstanceMembers - instanceMemberLines.size() == 1 ? "" : "s") + "\n";
+    }
     summary += "end";
 
     return summary;

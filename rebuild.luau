@@ -27,7 +27,7 @@ end
 
 const build = process.spawn({
     program = "cmake",
-    args = { "--build", "build", "-j8" },
+    args = { "--build", "build", "--target", "Luau.LanguageServer.CLI", "-j8" },
 }) :: process.PipedChild
 
 for line in build.stdout:lines() do
