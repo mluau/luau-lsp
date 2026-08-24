@@ -6,7 +6,7 @@ const fs = require("@std/fs")
 const str = require("@std/str")
 
 const home = fs.dir.home()
-const here_path = fs.path.join(script:path(), "Luau.tmLanguage.json")
+const here_path = fs.path.join(script:parent(), "Luau.tmLanguage.json")
 
 const function find_luau_lsp_extension_dir(path: string): string?
     const extensions = fs.listdir(path, false)
@@ -55,4 +55,4 @@ const function push_to_vscode()
 end
 
 
--- push_to_vscode()
+push_to_vscode()

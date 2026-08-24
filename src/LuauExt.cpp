@@ -586,6 +586,12 @@ struct FindExprOrLocalClosed : public Luau::AstVisitor
         }
         return true;
     }
+
+    bool visit(Luau::AstStatClass* classStat) override
+    {
+        visitLocal(classStat->name);
+        return true;
+    }
 };
 
 Luau::ExprOrLocal findExprOrLocalAtPositionClosed(const Luau::SourceModule& source, Luau::Position pos)
@@ -715,6 +721,15 @@ struct FindSymbolReferences : public Luau::AstVisitor
             result.push_back(typeReference->prefixLocation.value());
         return true;
     }
+
+    bool visit(Luau::AstStatClass* classStat) override
+    {
+        if (visitLocal(classStat->name))
+        {
+            result.push_back(classStat->name->location);
+        }
+        return true;
+    }
 };
 
 std::vector<Luau::Location> findSymbolReferences(const Luau::SourceModule& source, Luau::Symbol symbol)
@@ -754,6 +769,130 @@ struct FindTypeReferences : public Luau::AstVisitor
         return true;
     }
 };
+
+std::vector<Luau::Location> types::findClassNameReferences(const Luau::SourceModule& source, Luau::AstStatClass* classStat)
+{
+    std::vector<Luau::Location> result = findSymbolReferences(source, Luau::Symbol(classStat->name));
+
+    auto typeReferences = findTypeReferences(source, classStat->name->name.value, std::nullopt);
+    result.insert(result.end(), typeReferences.begin(), typeReferences.end());
+
+    return result;
+}
+
+namespace
+{
+// An extern type produced by a class statement has its own `definitionLocation` set to that
+// class statement's location. An "object" (instance) extern type instead points back to its
+// class's extern type via its nominal `relation`, and vice versa - so we check one hop of that
+// relation too, to treat `SomeClass.staticFn` and `someInstance:method()` uniformly.
+std::optional<Luau::Location> externTypeDefinitionLocation(Luau::TypeId ty)
+{
+    ty = Luau::follow(ty);
+    const auto* externType = Luau::get<Luau::ExternType>(ty);
+    if (!externType)
+        return std::nullopt;
+
+    if (externType->definitionLocation)
+        return externType->definitionLocation;
+
+    if (externType->relation)
+    {
+        Luau::TypeId relatedTy;
+        if (const auto* obj = externType->relation->get_if<Luau::Obj>())
+            relatedTy = obj->ty;
+        else if (const auto* klass = externType->relation->get_if<Luau::Klass>())
+            relatedTy = klass->ty;
+        else
+            return std::nullopt;
+
+        if (const auto* relatedExternType = Luau::get<Luau::ExternType>(Luau::follow(relatedTy)))
+            return relatedExternType->definitionLocation;
+    }
+
+    return std::nullopt;
+}
+} // namespace
+
+Luau::AstStatClass* types::findClassStatFromExternType(Luau::AstStatBlock* root, Luau::TypeId ty)
+{
+    auto location = externTypeDefinitionLocation(ty);
+    if (!location)
+        return nullptr;
+
+    for (Luau::AstStat* stat : root->body)
+        if (auto* classStat = stat->as<Luau::AstStatClass>())
+            if (classStat->location == *location)
+                return classStat;
+
+    return nullptr;
+}
+
+namespace
+{
+// Covers both fields and methods/static functions: usage sites (`obj.member`/`obj:member`) look
+// identical at the AST level regardless of which kind of member is being accessed.
+struct FindClassMemberUsages : public Luau::AstVisitor
+{
+    const Luau::ModulePtr& module;
+    Luau::AstName memberName;
+    Luau::Location classLocation;
+    std::vector<Luau::Location> result;
+
+    FindClassMemberUsages(const Luau::ModulePtr& module, Luau::AstName memberName, Luau::Location classLocation)
+        : module(module)
+        , memberName(memberName)
+        , classLocation(classLocation)
+    {
+    }
+
+    bool visit(Luau::AstExprIndexName* indexName) override
+    {
+        if (indexName->index == memberName)
+        {
+            if (auto ty = module->astTypes.find(indexName->expr))
+            {
+                if (auto location = externTypeDefinitionLocation(*ty); location && *location == classLocation)
+                    result.push_back(indexName->indexLocation);
+            }
+        }
+
+        return true;
+    }
+
+    bool visit(Luau::AstStatClass* classStat) override
+    {
+        if (classStat->location == classLocation)
+        {
+            for (const auto& member : classStat->members)
+            {
+                if (const auto* prop = member.get_if<Luau::AstClassProperty>())
+                {
+                    if (prop->name == memberName)
+                        result.push_back(prop->nameLocation);
+                }
+                else if (const auto* method = member.get_if<Luau::AstClassMethod>())
+                {
+                    if (method->functionName == memberName)
+                        result.push_back(method->nameLocation);
+                }
+            }
+        }
+
+        // Continue descending, since methods (including this one) may reference the target member
+        // recursively via `self.member`/`self:member()` in their own bodies.
+        return true;
+    }
+};
+} // namespace
+
+std::vector<Luau::Location> types::findClassMemberReferences(
+    const Luau::SourceModule& source, const Luau::ModulePtr& module, Luau::AstStatClass* classStat, const Luau::AstName& methodName)
+{
+    FindClassMemberUsages finder(module, methodName, classStat->location);
+    source.root->visit(&finder);
+    return std::move(finder.result);
+}
 
 std::vector<Luau::Location> findTypeReferences(const Luau::SourceModule& source, const Luau::Name& typeName, std::optional<const Luau::Name> prefix)
 {
@@ -872,3 +1011,70 @@ std::optional<Luau::TypeId> findCallMetamethod(Luau::TypeId type)
 
     return std::nullopt;
 }
+
+namespace types
+{
+std::optional<ClassInitSuggestion> computeClassInitSuggestion(
+    Luau::AstStatClass* classStat, const TextDocument& textDocument, std::optional<Luau::Position> beforePosition)
+{
+    ClassInitSuggestion suggestion;
+
+    for (const auto& member : classStat->members)
+    {
+        if (const auto* prop = member.get_if<Luau::AstClassProperty>())
+        {
+            if (prop->visibility == Luau::AstClassMemberVisibility::Private)
+                suggestion.requiresPublicQualifier = true;
+
+            if (beforePosition && !(prop->nameLocation.begin < *beforePosition))
+                continue;
+
+            ClassInitParam param;
+            param.name = prop->name.value;
+            if (prop->ty)
+                param.type = textDocument.getText(textDocument.convertLocation(prop->ty->location));
+            param.hasDefault = prop->defaultValue != nullptr;
+            suggestion.params.push_back(std::move(param));
+        }
+        else if (const auto* method = member.get_if<Luau::AstClassMethod>())
+        {
+            if (method->functionName == Luau::AstName("__init"))
+                return std::nullopt;
+
+            if (method->visibility == Luau::AstClassMemberVisibility::Private)
+                suggestion.requiresPublicQualifier = true;
+        }
+    }
+
+    return suggestion;
+}
+
+namespace
+{
+struct FindClassStatContainingPosition : Luau::AstVisitor
+{
+    Luau::Position targetPosition;
+    Luau::AstStatClass* result = nullptr;
+
+    explicit FindClassStatContainingPosition(const Luau::Position& position)
+        : targetPosition(position)
+    {
+    }
+
+    bool visit(Luau::AstStatClass* node) override
+    {
+        if (node->location.containsClosed(targetPosition))
+            result = node;
+        return true;
+    }
+};
+} // namespace
+
+Luau::AstStatClass* findClassStatContainingPosition(Luau::AstStatBlock* root, const Luau::Position& position)
+{
+    FindClassStatContainingPosition finder(position);
+    root->visit(&finder);
+    return finder.result;
+}
+
+} // namespace types

@@ -46,6 +46,48 @@ std::optional<Luau::AstExpr*> matchRequire(const Luau::AstExprCall& call);
 
 std::optional<lsp::Location> getTypeLocation(Luau::TypeId ty, WorkspaceFileResolver* fileResolver);
 
+// A single parameter that a synthesized `__init` would take, derived from a class property.
+struct ClassInitParam
+{
+    std::string name;
+    std::string type; // raw source text of the property's type annotation; empty if untyped
+    bool hasDefault = false;
+};
+
+struct ClassInitSuggestion
+{
+    std::vector<ClassInitParam> params;
+    // True if any existing member is `private`, meaning the synthesized `__init` must also be
+    // explicitly qualified `public` to avoid the "class contains a 'private' member" ambiguity error.
+    bool requiresPublicQualifier = false;
+};
+
+// Returns the properties available to fill in a synthesized `__init`, or nullopt if `classStat`
+// already declares one. If `beforePosition` is set, only properties declared before it are
+// included as parameters (guards against parser error-recovery artifacts from an in-progress
+// edit, e.g. typing an incomplete `function` keyword can cause the parser to swallow unrelated
+// trailing source as bogus properties).
+std::optional<ClassInitSuggestion> computeClassInitSuggestion(
+    Luau::AstStatClass* classStat, const TextDocument& textDocument, std::optional<Luau::Position> beforePosition = std::nullopt);
+
+// Finds the innermost class statement in `root` whose body contains `position`, if any.
+Luau::AstStatClass* findClassStatContainingPosition(Luau::AstStatBlock* root, const Luau::Position& position);
+
+// Finds every reference to a class's own name: its declaration, all value usages (constructor
+// calls, static/method access via `ClassName.member`, passing the class around), and all type
+// annotation usages (`local x: ClassName`).
+std::vector<Luau::Location> findClassNameReferences(const Luau::SourceModule& source, Luau::AstStatClass* classStat);
+
+// Finds every reference to a field, method, or static function declared on `classStat`: its
+// declaration, and every `.name`/`:name` access site whose base expression's type resolves
+// (directly, or via the class/object nominal relation) to `classStat`.
+std::vector<Luau::Location> findClassMemberReferences(
+    const Luau::SourceModule& source, const Luau::ModulePtr& module, Luau::AstStatClass* classStat, const Luau::AstName& memberName);
+
+// If `ty` is (or is nominally related to, via the class/object relation) the extern type produced
+// by some class statement in `root`, returns that class statement.
+Luau::AstStatClass* findClassStatFromExternType(Luau::AstStatBlock* root, Luau::TypeId ty);
+
 } // namespace types
 
 // TODO: should upstream this

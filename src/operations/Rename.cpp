@@ -18,6 +18,27 @@ static bool isGlobalBinding(const Luau::Binding& binding)
     return binding.location.begin == Luau::Position{0, 0} && binding.location.end == Luau::Position{0, 0};
 }
 
+static std::vector<lsp::Location> toLspLocations(
+    const lsp::DocumentUri& uri, const TextDocument& textDocument, const std::vector<Luau::Location>& locations)
+{
+    std::vector<lsp::Location> result;
+    result.reserve(locations.size());
+    for (const auto& location : locations)
+        result.emplace_back(
+            lsp::Location{uri, {textDocument.convertPosition(location.begin), textDocument.convertPosition(location.end)}});
+    return result;
+}
+
+// Finds the class statement (always top-level) in `root` whose own name is `local`, if any.
+static Luau::AstStatClass* findClassStatByNameLocal(Luau::AstStatBlock* root, Luau::AstLocal* local)
+{
+    for (Luau::AstStat* stat : root->body)
+        if (auto* classStat = stat->as<Luau::AstStatClass>())
+            if (classStat->name == local)
+                return classStat;
+    return nullptr;
+}
+
 std::vector<lsp::Location> getReferencesForRenaming(
     WorkspaceFolder* workspaceFolder, const lsp::RenameParams& params, const LSPCancellationToken& cancellationToken)
 {
@@ -32,6 +53,31 @@ std::vector<lsp::Location> getReferencesForRenaming(
     auto sourceModule = workspaceFolder->frontend.getSourceModule(moduleName);
     if (!sourceModule)
         throw JsonRpcException(lsp::ErrorCode::RequestFailed, "Unable to read source code");
+
+    // Renaming a class name, from either its declaration (`class Dog`) or a usage (constructor
+    // call, static/method access via `Dog.member`, or a `: Dog` type annotation).
+    if (auto* classStat = types::findClassStatContainingPosition(sourceModule->root, position);
+        classStat && classStat->name->location.containsClosed(position))
+        return toLspLocations(params.textDocument.uri, *textDocument, types::findClassNameReferences(*sourceModule, classStat));
+
+    // Renaming a field, method, or static function, from its declaration inside a class.
+    if (auto* classStat = types::findClassStatContainingPosition(sourceModule->root, position))
+    {
+        for (const auto& member : classStat->members)
+        {
+            Luau::AstName memberName;
+            if (const auto* prop = member.get_if<Luau::AstClassProperty>(); prop && prop->nameLocation.containsClosed(position))
+                memberName = prop->name;
+            else if (const auto* method = member.get_if<Luau::AstClassMethod>(); method && method->nameLocation.containsClosed(position))
+                memberName = method->functionName;
+            else
+                continue;
+
+            auto module = workspaceFolder->getModule(moduleName, /* forAutocomplete: */ true);
+            return toLspLocations(
+                params.textDocument.uri, *textDocument, types::findClassMemberReferences(*sourceModule, module, classStat, memberName));
+        }
+    }
 
     if (auto binding = getBinding(workspaceFolder, moduleName, position); binding && isGlobalBinding(*binding))
         throw JsonRpcException(lsp::ErrorCode::RequestFailed, "Cannot rename a global variable");
@@ -49,21 +95,31 @@ std::vector<lsp::Location> getReferencesForRenaming(
             symbol = local->local;
         else if (auto global = expr->as<Luau::AstExprGlobal>())
             symbol = global->name;
+        else if (auto indexName = expr->as<Luau::AstExprIndexName>())
+        {
+            // Renaming a field, method, or static function from a usage site
+            // (`dog.name`/`Dog.method`/`dog:method`).
+            auto module = workspaceFolder->getModule(moduleName, /* forAutocomplete: */ true);
+            if (auto ty = module->astTypes.find(indexName->expr))
+            {
+                if (auto* classStat = types::findClassStatFromExternType(sourceModule->root, *ty))
+                    return toLspLocations(params.textDocument.uri, *textDocument,
+                        types::findClassMemberReferences(*sourceModule, module, classStat, indexName->index));
+            }
+        }
     }
 
     if (symbol)
     {
-        std::vector<lsp::Location> result;
-
-        auto references = findSymbolReferences(*sourceModule, symbol);
-        result.reserve(references.size());
-        for (auto& location : references)
+        // If this local is a class's own name, include type-annotation usages too.
+        if (symbol.local)
         {
-            result.emplace_back(
-                lsp::Location{params.textDocument.uri, {textDocument->convertPosition(location.begin), textDocument->convertPosition(location.end)}});
+            if (auto* classStat = findClassStatByNameLocal(sourceModule->root, symbol.local))
+                return toLspLocations(params.textDocument.uri, *textDocument, types::findClassNameReferences(*sourceModule, classStat));
         }
 
-        return result;
+        auto references = findSymbolReferences(*sourceModule, symbol);
+        return toLspLocations(params.textDocument.uri, *textDocument, references);
     }
     else
     {

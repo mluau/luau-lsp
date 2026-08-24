@@ -58,33 +58,6 @@ Luau::AstStat* findStatementContainingLocal(Luau::AstStatBlock* root, const Luau
     return finder.result;
 }
 
-// Visitor to find the class statement that contains a given location (e.g. the location of one
-// of its members' "private member requires all members to be qualified" diagnostics)
-struct FindClassStatContainingLocation : Luau::AstVisitor
-{
-    Luau::Location targetLocation;
-    Luau::AstStatClass* result = nullptr;
-
-    explicit FindClassStatContainingLocation(const Luau::Location& location)
-        : targetLocation(location)
-    {
-    }
-
-    bool visit(Luau::AstStatClass* node) override
-    {
-        if (node->location.containsClosed(targetLocation.begin))
-            result = node;
-        return true;
-    }
-};
-
-Luau::AstStatClass* findClassStatContainingLocation(Luau::AstStatBlock* root, const Luau::Location& location)
-{
-    FindClassStatContainingLocation finder(location);
-    root->visit(&finder);
-    return finder.result;
-}
-
 void generateClassMemberPublicFix(const lsp::DocumentUri& uri, Luau::AstStatClass* classStat, const TextDocument& textDocument,
     const std::optional<lsp::Diagnostic>& diagnostic, std::vector<lsp::CodeAction>& result)
 {
@@ -125,6 +98,119 @@ void generateClassMemberPublicFix(const lsp::DocumentUri& uri, Luau::AstStatClas
 
     lsp::WorkspaceEdit workspaceEdit;
     workspaceEdit.changes.emplace(uri, edits);
+    action.edit = workspaceEdit;
+
+    result.push_back(action);
+}
+
+// Returns the leading whitespace of the given source line, used to match the
+// indentation style of the surrounding class body when synthesizing new members.
+std::string getLineIndent(const TextDocument& textDocument, size_t line)
+{
+    if (line >= textDocument.lineCount())
+        return "    ";
+
+    std::string lineText = textDocument.getLine(line);
+    size_t i = 0;
+    while (i < lineText.size() && (lineText[i] == ' ' || lineText[i] == '\t'))
+        ++i;
+    return lineText.substr(0, i);
+}
+
+// The source line a class property's declaration ends on, used to find where to
+// splice in a synthesized `__init` right after the last property.
+size_t classPropertyEndLine(const Luau::AstClassProperty& prop)
+{
+    if (prop.defaultValue)
+        return prop.defaultValue->location.end.line;
+    if (prop.ty)
+        return prop.ty->location.end.line;
+    return prop.nameLocation.end.line;
+}
+
+void generateClassInitCodeAction(const lsp::DocumentUri& uri, Luau::AstStatClass* classStat, const TextDocument& textDocument,
+    std::vector<lsp::CodeAction>& result)
+{
+    auto suggestion = types::computeClassInitSuggestion(classStat, textDocument);
+    if (!suggestion)
+        return; // __init already defined, nothing to suggest
+
+    const Luau::AstClassProperty* lastProperty = nullptr;
+    const Luau::AstClassMethod* firstMethod = nullptr;
+
+    for (const auto& member : classStat->members)
+    {
+        if (const auto* prop = member.get_if<Luau::AstClassProperty>())
+            lastProperty = prop;
+        else if (const auto* method = member.get_if<Luau::AstClassMethod>())
+        {
+            if (!firstMethod)
+                firstMethod = method;
+        }
+    }
+
+    std::string classIndent = getLineIndent(textDocument, classStat->location.begin.line);
+    std::string memberIndent = classIndent + "    ";
+
+    std::string paramList = "self";
+    std::string body;
+
+    for (const auto& param : suggestion->params)
+    {
+        paramList += ", " + param.name;
+        if (!param.type.empty())
+        {
+            paramList += ": " + param.type;
+            if (param.hasDefault && param.type.back() != '?')
+                paramList += "?";
+        }
+
+        if (param.hasDefault)
+        {
+            body += memberIndent + "    if " + param.name + " then\n";
+            body += memberIndent + "        self." + param.name + " = " + param.name + "\n";
+            body += memberIndent + "    end\n";
+        }
+        else
+        {
+            body += memberIndent + "    self." + param.name + " = " + param.name + "\n";
+        }
+    }
+
+    std::string block = memberIndent + (suggestion->requiresPublicQualifier ? "public function __init(" : "function __init(") + paramList + ")\n" +
+                         body + memberIndent + "end\n";
+
+    lsp::Position insertPos;
+    std::string text;
+
+    if (firstMethod)
+    {
+        // Splice __init in right before the first existing method
+        insertPos = {firstMethod->keywordLocation.begin.line, 0};
+        text = "\n" + block + "\n";
+    }
+    else if (lastProperty)
+    {
+        // Splice __init in right after the last property
+        insertPos = {static_cast<unsigned int>(classPropertyEndLine(*lastProperty)) + 1, 0};
+        text = "\n" + block;
+    }
+    else
+    {
+        // Empty class body: insert right after the `class Name` header line
+        insertPos = {classStat->location.begin.line + 1, 0};
+        text = block;
+    }
+
+    lsp::CodeAction action;
+    action.title = "Generate __init from class properties";
+    action.kind = lsp::CodeActionKind::RefactorRewrite;
+    action.isPreferred = true;
+
+    lsp::TextEdit edit{{insertPos, insertPos}, text};
+
+    lsp::WorkspaceEdit workspaceEdit;
+    workspaceEdit.changes.emplace(uri, std::vector{edit});
     action.edit = workspaceEdit;
 
     result.push_back(action);
@@ -346,7 +432,7 @@ lsp::CodeActionResult WorkspaceFolder::codeAction(const lsp::CodeActionParams& p
 
     if (!params.context.wants(lsp::CodeActionKind::QuickFix) && !params.context.wants(lsp::CodeActionKind::Source) &&
         !params.context.wants(lsp::CodeActionKind::SourceOrganizeImports) && !params.context.wants(lsp::CodeActionKind::RefactorExtract) &&
-        !params.context.wants(lsp::CodeActionKind::RefactorInline))
+        !params.context.wants(lsp::CodeActionKind::RefactorInline) && !params.context.wants(lsp::CodeActionKind::RefactorRewrite))
         return result;
 
     auto config = client->getConfiguration(rootUri);
@@ -450,7 +536,7 @@ lsp::CodeActionResult WorkspaceFolder::codeAction(const lsp::CodeActionParams& p
             {
                 if (syntaxError->message.find("Class contains a 'private' member") != std::string::npos)
                 {
-                    if (auto* classStat = findClassStatContainingLocation(sourceModule->root, error.location))
+                    if (auto* classStat = types::findClassStatContainingPosition(sourceModule->root, error.location.begin))
                         generateClassMemberPublicFix(params.textDocument.uri, classStat, *textDocument, diagnostic, result);
                 }
             }
@@ -551,6 +637,12 @@ lsp::CodeActionResult WorkspaceFolder::codeAction(const lsp::CodeActionParams& p
     if (params.context.wants(lsp::CodeActionKind::RefactorExtract) || params.context.wants(lsp::CodeActionKind::RefactorInline))
     {
         computeRefactorings(params, *sourceModule, *textDocument, requestRange, result);
+    }
+
+    if (params.context.wants(lsp::CodeActionKind::RefactorRewrite))
+    {
+        if (auto* classStat = types::findClassStatContainingPosition(sourceModule->root, requestRange.begin))
+            generateClassInitCodeAction(params.textDocument.uri, classStat, *textDocument, result);
     }
 
     platform->handleCodeAction(params, result);
