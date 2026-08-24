@@ -248,6 +248,21 @@ static std::optional<std::string> buildClassFieldSummary(
         }
     }
 
+    // Instance fields (e.g. `const inner = ...` with no annotation) only live in the *object*
+    // type's props -- the class value's own `et` only has static members and the constructor. So
+    // when summarizing the class value, resolve instance member types off the object type
+    // (reached via `relation`) rather than off `et` itself.
+    const Luau::ExternType* objectEt = et;
+    if (isClassValue)
+    {
+        if (et->relation)
+        {
+            if (const auto* obj = Luau::get_if<Luau::Obj>(&*et->relation))
+                if (const auto* objectExternType = Luau::get<Luau::ExternType>(Luau::follow(obj->ty)))
+                    objectEt = objectExternType;
+        }
+    }
+
     if (isClassValue && et->metatable)
     {
         if (auto mt = Luau::get<Luau::TableType>(Luau::follow(*et->metatable)))
@@ -332,7 +347,7 @@ static std::optional<std::string> buildClassFieldSummary(
             // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
             // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
             // equivalent handling of methods.
-            if (auto it = et->props.find(prop->name.value); it != et->props.end() && it->second.readTy)
+            if (auto it = objectEt->props.find(prop->name.value); it != objectEt->props.end() && it->second.readTy)
                 line += Luau::toString(Luau::follow(*it->second.readTy));
             else if (prop->ty)
             {
@@ -382,7 +397,9 @@ static std::optional<std::string> buildClassFieldSummary(
         if (!isClassValue && isStatic)
             continue;
 
-        std::string line = formatMethodLine(module, et, method, scope, showTableKinds);
+        // Static methods live on the class's own `et`; instance methods (like instance fields)
+        // only live on the object type, reached via `objectEt`.
+        std::string line = formatMethodLine(module, isStatic ? et : objectEt, method, scope, showTableKinds);
         if (line.empty())
             continue;
         line = "    public " + line;
@@ -548,7 +565,7 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
         // value namespace to the class value (the `class` type, with a `__call` constructor).
         if (classStat->name->location.containsClosed(position))
         {
-            if (auto classValueTy = scope->lookup(classStat->name))
+            if (auto classValueTy = scope->lookup(classStat->name->name))
                 type = *classValueTy;
         }
 
