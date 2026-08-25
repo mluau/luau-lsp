@@ -5,6 +5,7 @@
 #include "Luau/ToString.h"
 #include "LSP/LuauExt.hpp"
 #include "LSP/DocumentationParser.hpp"
+#include "LSP/KeywordHovers.hpp"
 
 // Lifted from lutf8lib.cpp
 /*
@@ -549,6 +550,13 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
     if (!node || !scope)
         return std::nullopt;
 
+    auto ancestry = Luau::findAstAncestryOfPosition(*sourceModule, position);
+    if (auto keywordMatch = findKeywordDocKeyAtPosition(ancestry, position))
+    {
+        if (auto docs = getKeywordHoverDocs(keywordMatch->docKey))
+            return lsp::Hover{{lsp::MarkupKind::Markdown, *docs}, textDocument->convertLocation(keywordMatch->range)};
+    }
+
     std::optional<std::pair<std::string, Luau::TypeFun>> typeAliasInformation = std::nullopt;
     std::optional<Luau::TypeId> type = std::nullopt;
     std::optional<std::string> documentationSymbol = getDocumentationSymbolAtPosition(*sourceModule, *module, position);
@@ -690,10 +698,18 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
     }
     else if (auto expr = exprOrLocal.getExpr())
     {
+        // findExprOrLocalAtPosition falls back to matching the whole enclosing AstExprFunction
+        // whenever no more specific statement/local claims a position inside its body (e.g. blank
+        // lines, indentation to the left of a statement) -- which would otherwise show the full
+        // function signature when hovering over plain whitespace. `node`, from the
+        // block-boundary-aware findNodeOrTypeAtPosition, doesn't have this problem, so only trust
+        // this match when the two agree.
+        if (expr->is<Luau::AstExprFunction>() && node != expr)
+            return std::nullopt;
+
         // Special case, we want to check if there is a parent in the ancestry, and if it is an AstTable
         // If so, and we are hovering over a prop, we want to give type info for the assigned expression to the prop
         // rather than just "string"
-        auto ancestry = Luau::findAstAncestryOfPosition(*sourceModule, position);
         if (ancestry.size() >= 2 && ancestry.at(ancestry.size() - 2)->is<Luau::AstExprTable>())
         {
             auto parent = ancestry.at(ancestry.size() - 2)->as<Luau::AstExprTable>();

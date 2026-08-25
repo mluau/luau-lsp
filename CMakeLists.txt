@@ -53,6 +53,7 @@ target_sources(Luau.LanguageServer PRIVATE
         src/TextDocument.cpp
         src/Client.cpp
         src/DocumentationParser.cpp
+        src/KeywordHovers.cpp
         src/LuauExt.cpp
         src/LuauFileUtils.cpp
         src/IostreamHelpers.cpp
@@ -201,6 +202,7 @@ target_compile_options(Luau.LanguageServer PRIVATE ${LUAU_LSP_OPTIONS})
 target_compile_definitions(Luau.LanguageServer PUBLIC
     LSP_VERSION="${LSP_VERSION}"
     LSP_NAME="${LSP_NAME}"
+    LSP_KEYWORD_HOVERS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/keyword_hovers.json"
     $<$<BOOL:${LSP_BUILD_WITH_SENTRY}>:LSP_BUILD_WITH_SENTRY>
 )
 target_include_directories(Luau.LanguageServer PUBLIC src/include)

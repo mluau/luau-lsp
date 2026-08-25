@@ -1,6 +1,7 @@
 #include "doctest.h"
 #include "Fixture.h"
 #include "LSP/DocumentationParser.hpp"
+#include "LSP/KeywordHovers.hpp"
 
 LUAU_FASTFLAG(DebugLuauUserDefinedClasses)
 LUAU_FASTFLAG(LuauBetterUserDefinedClasses)
@@ -725,6 +726,24 @@ TEST_CASE_FIXTURE(Fixture, "hovering_over_comment_inside_anonymous_function_body
     CHECK_FALSE(result.has_value());
 }
 
+TEST_CASE_FIXTURE(Fixture, "hovering_over_whitespace_inside_function_body_does_not_show_function_type")
+{
+    auto [source, marker] = sourceWithMarker(R"(
+        local function add1(n: number): number
+          |  return n + 1
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    CHECK_FALSE(result.has_value());
+}
+
 TEST_CASE_FIXTURE(Fixture, "includes_documentation_for_base_table_member_of_setmetatable_type")
 {
     auto source = R"(
@@ -807,6 +826,36 @@ TEST_CASE_FIXTURE(Fixture, "hovering_over_const_class_property_shows_const")
     auto result = workspace.hover(params, nullptr);
     REQUIRE(result);
     CHECK_EQ(result->contents.value, codeBlock("luau", "public const name: string"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_class_keyword_of_exported_class_shows_class_keyword_docs")
+{
+    // Regression test: `export class Foo ... end` used to record the location of `export` (not
+    // `class`) as AstStatClass::keywordLocation, so hovering the literal `class` keyword found no
+    // match here and hovering `export` matched against text that isn't in keyword_hovers.json --
+    // in both cases, nothing showed up.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        export cl|ass Cat
+            name: string
+
+            function __init(self, name: string)
+                self.name = name
+            end
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, getKeywordHoverDocs("class"));
 }
 
 TEST_CASE_FIXTURE(Fixture, "hovering_over_class_name_shows_class_value_summary_with_constructor")
