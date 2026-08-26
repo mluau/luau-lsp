@@ -1,6 +1,5 @@
-#!/usr/bin/env seal
 --!strict
--- run with seal 0.8.0 https://github.com/seal-runtime/seal
+-- run with seal 0.8.x https://github.com/seal-runtime/seal
 const env = require("@std/env")
 const fs = require("@std/fs")
 const str = require("@std/str")
@@ -53,6 +52,5 @@ const function push_to_vscode()
         error("uh os not supported yet")
     end
 end
-
 
 push_to_vscode()
