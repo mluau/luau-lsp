@@ -1,7 +1,9 @@
 # Keywords
 
 <!-- keyword: and -->
-`and` is a logical operator. It does not always evaluate to a `boolean`.
+`and` is a logical operator.
+It does not always evaluate to a `boolean`.
+It is a reserved keyword.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
 In Luwu, it added `none` and it's also considered falsy.
@@ -33,7 +35,7 @@ Using this technical behavior, `and` can be used as a conditional statement with
 The examples show `20` as the truthy result, while it is `nil` and `false` as the falsy result.
 
 Combining the `and` keyword and the `or` keyword, which also has similar short-circuit evaluation behavior,
-it allows the `and-or` ternary operator, which is a side effect of the evaluation behavior.
+it allows the `and-or` idiom for ternary conditional operator, which is a side effect of the evaluation behavior.
 The first argument is the condition, second argument is the truthy result, and third argument is the falsy result.
 
 Examples:
@@ -50,7 +52,7 @@ However, the truthy result (second argument) cannot be falsy as that does not wo
 true and false or 30 -- 30 (expected `false`)
 ```
 
-In Luau, it added a lint and `if-else` *expression* for ternary operators to prevent this common pitfall and correctly evaluate to `false` in that example.
+In Luau, it added a lint and `if-else` *expression* for ternary conditional operators to prevent this common pitfall and correctly evaluate to `false` in that example.
 
 ```luau
 if true then false else 30 -- false
@@ -90,86 +92,228 @@ The `break` keyword simply jumps to the next bytecode after the loop.
 Begins a code block. For variables, it creates a scope.
 The current code block ends at the corresponding `end` keyword to the `do` keyword.
 
+```luau
+do
+    -- Code block.
+end
+```
+
 In the context of a file, a chunk is a top-level code block, which is the entire source code.
 
 This keyword is used with `while` and `for` loop statements to create the loop body.
 It is the delimiter after the conditions and before the loop body.
 
-Example:
-
 ```luau
-for i = 1, 10 do -- delimiter
+for i = 1, 10 do
+    -- Code block in a lower scope.
+    -- `i` is a `local` variable.
     print(i)
 end
 ```
 
-All `local` and `const` declarations inside of a code block are bound to the current scope.
+```luau
+for key, value in list do
+    -- Code block in a lower scope.
+    -- `key` and `value` are `local` variables.
+    print(key, value)
+end
+```
+
 All global variable declarations do not bound to the current scope.
-When the variable identifier takes the same name as an outer scope, the variable is shadowed and the later declaration takes precedence.
+
+```luau
+do
+    -- Code block in a lower scope.
+    a = 2
+end
+print(a) -- 2
+```
+
+All `local` and `const` declarations inside of a code block are bound to the current scope.
 After the `end` keyword, the bindings are out-of-scope and their identifier returns to associate with the previous value in the outer scope (if shadowed) or `nil` (if not shadowed).
+
+```luau
+local a = 1
+do
+    -- Code block in a lower scope.
+    local b = 2
+    print(a, b) -- 1 2
+end
+print(a, b) -- 1 nil
+```
+
+When the variable identifier takes the same name as an outer scope, the variable is shadowed and the later declaration takes precedence.
+
+```luau
+local a = 1
+do
+    -- Code block in a lower scope.
+    local a = 2
+    print(a) -- 2
+end
+print(a) -- 1
+```
 <!-- /keyword -->
 
 <!-- keyword: if -->
-Branch on a conditional expression.
-Most values are considered `truthy`, including all strings, numbers, complex types, etc.
+Creates an `if` *statement* or `if` *expression*, depending on the context. It is a reserved keyword.
+If the condition evaluates to a truthy value, the code block executes, and then skips over the remaining conditional branches, if any.
 
-In Luwu, `false`, `none`, and `nil` are considered falsy.
+In Lua and Luau, `false` and `nil` are considered falsy.
+In Luwu, it added `none` and it's also considered falsy.
+All other values are considered truthy.
 
-If statements:
+An `if` *statement* structure has a condition and a code block.
+The condition goes between the `if` keyword and the `do` keyword.
+See documentation for the `do` keyword for more details about code blocks.
+
+An `if` *statement* creates a clause.
+In technical terms, it creates a conditional branch.
+There can only exist 1 `if` clause.
+When the program is compiled into bytecode, a conditional branch corresponds to an appropriate jump instruction to conditionally skip bytecodes.
+
+Example for `if` *statement*:
 
 ```luau
 if x == y then
     do_something(x)
 end
-if (x == y) or z then
-    const computed = compute_something(x, y)
-    do_something(computed)
-else
-    do_something(y)
-end
-if x ~= y then
+```
+
+`if` *statements* can be used with the `elseif` keyword, which creates another conditional branch.
+There can exist many `elseif` clauses after the `if` clause and before the `else` clause.
+It only evaluates its condition when all previous conditions are falsy.
+This is known as an `if-then-elseif` statement, or `if-elseif` statement.
+
+```luau
+if x == y then
     do_something(x)
-elseif type(x) == "number" and type(y) == "string" then
-    do_something_else(x, y)
+elseif y == z then
+    do_something_else_on_condition(y)
 end
 ```
 
-Luwu also supports `if` *expressions*:
+The `else` keyword creates a conditional branch that only and always executes when all previous conditions are falsy.
+There can only exist 1 `else` clause.
+Without `elseif`, this is known as an `if-then-else` statement, or `if-else` statement.
+With `elseif`, this is known as an `if-then-elseif-then-else` statement, of `if-elseif-else` statement.
 
 ```luau
-const thing_to_add =
+if x == y then
+    do_something(x)
+else
+    do_something_else(y)
+end
+```
+
+```luau
+if x == y then
+    do_something(x)
+elseif y == z then
+    do_something_else_on_condition(y)
+else
+    do_something_else(z)
+end
+```
+
+In Luau, an `if` *expression* is a ternary conditional operator to replace the `and-or` idiom.
+See the `and` keyword or the `or` keyword for more details about this idiom.
+
+`if` *expression* requires an explicit `else` clause and does not use the `end` keyword.
+In other words, its appearance is similar to at least an `if-else` statement without the `end` keyword.
+It also allows `elseif` to create another conditional branch similar to `if` statements.
+
+Unlike `if` statements, code blocks correspond to the result to assign to the variable.
+
+In pseudocode:
+
+```txt
+IDENTIFIER = if condition then result_if_true else result_if_false
+
+IDENTIFIER = if condition_1 then result_if_true_1 elseif condition_2 then result_if_true_2 else result_if_false
+```
+
+Whitespaces can be used for better user readability.
+
+```txt
+IDENTIFIER =
+    if condition then
+        result_if_true
+    else
+        result_if_false
+
+IDENTIFIER =
+    if condition_1 then
+        result_if_true_1
+    elseif condition_2 then
+        result_if_true_2
+    else
+        result_if_false
+```
+
+Example:
+
+```luau
+-- If x == y then assign `value` to `100`,
+-- else run the `do_something()` function on `y` and assign `value` to the return value of that function.
+
+const value =
     if x == y then
-        do_something(compute_something(x, y))
+        100
     else
         do_something(y)
 ```
-
-Unlike `if` statements, `if` expressions must contain only one expression in each of its branches, evaluate to at least one value, require an `else` branch, and do not terminate with `end`.
 <!-- /keyword -->
 
 <!-- keyword: else -->
-Add a final, catch-all branch to an `if` statement or expression.
+Creates a conditional branch to an `if` statement or `if` expression that only and always executes when all previous conditions are falsy.
+
+See documentation for `if` keyword for more details.
+
+Example using `else` in `if` *statement*:
+
+```luau
+if x == y then
+    do_something(x)
+else
+    do_something_else(y)
+end
+```
+
+Example using `else` in `if` *expression*:
+
+```luau
+const found_cat = if cat == nyla then nyla else none
+```
 <!-- /keyword -->
 
 <!-- keyword: elseif -->
-Add a separate conditional branch to an `if` statement or expression.
+Creates a conditional branch to an `if` statement or `if` expression that only evaluates its condition when all previous conditions are falsy.
+If the condition evaluates to a truthy value, the code block executes, and then skips over the remaining conditional branches, if any.
+
+See documentation for `if` keyword for more details.
+
+Example using `elseif` in `if` *statement*:
 
 ```luau
-if x ~= y then
-    -- do something
-elseif x == (y - 2) then
-    -- do something else
+if x == y then
+    do_something(x)
+elseif y == z then
+    do_something_else(y)
 end
+```
+
+Example using `elseif` in `if` *expression*:
+
+```luau
+-- Notice that the if expression requires a final `else` keyword.
 const found_cat = if cat == nyla then nyla elseif cat == taz then cats[taz] else none
-if cat then
-    cat:meow()
-end
 ```
 <!-- /keyword -->
 
 <!-- keyword: end -->
 `end` is a reserved keyword.
-It ends a code block. See hover documentations for the `do` keyword for more details about code blocks.
+It ends a code block. See documentations for the `do` keyword for more details about code blocks.
 
 It also ends a function body. However, this is the same as a code block.
 
@@ -177,7 +321,7 @@ It cannot end a chunk.
 <!-- /keyword -->
 
 <!-- keyword: false -->
-The falsy `boolean` value. It is a reserved keyword/
+The falsy `boolean` value. It is a reserved keyword.
 
 It is one of the few falsy values.
 In Lua, the other falsy value is `nil`.
@@ -185,29 +329,207 @@ In Luwu, `none` is also a falsy value.
 <!-- /keyword -->
 
 <!-- keyword: for -->
-Create loop statements to iterate over containers (or a set number of times).
+Creates a `for` loop. It is a reserved keyword.
+The exact loop depends on the context.
+
+In Lua, a `for` loop has 2 forms: numeric and generic.
+
+A numeric `for` loop structure has a control variable, an initial value, a limit value, a step value, and a loop body.
+
+The control variable can be used in the loop body, which is a code block, and is bound within that scope.
+See documentation for the `do` keyword for more details about code blocks.
+
+The initial value, limit value, and step value must evaluate to a number with `tonumber()`.
+The step value is optional and defaults to `1`.
+
+In pseudocode:
+
+```txt
+for NAME = INITIAL, LIMIT, STEP do
+    block
+end
+```
+
+Step value behavior:
+
+- If the step value is positive, the initial value must be less than the limit value.
+- If the step value is negative, the initial value must be greater than the limit value.
+- If the step value is `0`, the loop is skipped.
+- If the step value increments or decrements the control variable over the limit value, the loop stops iterating.
+
+Example:
 
 ```luau
--- iterate over an array
-const cats: { string } = { "Taz", "Nyla", "Nanuk", "Crazy", "Mr. Purrsalot" }
-for index, cat in cats do
-    print(cat)
+for i = 3, 5 do
+    print(i) -- 3 4 5
+end
+```
+
+```luau
+for i = 10, 5, -2 do
+    print(i) -- 10 8 6
+end
+```
+
+A generic `for` loop structure has any amount of variables, the `in` keyword, an iterator function, and a loop body.
+
+The variables correspond to the returned values from the iterator function.
+They can be used in the loop body, which is a code block, and are bound within that scope.
+See documentation for the `do` keyword for more details about code blocks.
+
+In pseudocode:
+
+```txt
+for VAR_1, VAR_2, ..., VAR_N in ITERATOR(TABLE) do
+    block
+end
+```
+
+In Lua, the built-in `ipairs()` and `pairs()` are iterator functions and both are called per iteration and return 2 variables.
+
+- `ipairs()` guarantees consecutive ordering from index `1` to the last index that is not `nil` in the table.
+The iterator function stops at the first `nil` element, which separates the array part and the hash part of the table, and doesn't execute the loop body.
+- `pairs()` does not guarantee any ordering.
+In practice, it might have a pattern to loop from the array part and then the hash part, but this is not always true.
+
+Iterating through an array using `ipairs()`:
+
+```luau
+--[[
+    Expected output:
+    1 foo
+    2 bar
+    3 moon
+    4 seal
+    5 cat
+    
+    Notice index 7 is not printed because index 6 is `nil`.
+]]
+local t = {"foo", "bar", "moon", "seal", "cat", [7] = "bad"}
+
+for index, value in ipairs(t) do
+    print(index, value)
+end
+```
+
+Iterating through a mixed table (a table with both an array part and a hash part):
+
+```luau
+-- The output iterates through every keys in the table.
+-- However, this is not always guaranteed. This is clearly seen in Lua.
+--
+-- In Luau, the implementation details of the initial table declaration makes it seem ordered.
+-- This is not always the case when the table is modified much further.
+local t = {
+    [5] = "could be the first",
+    [1] = "foo",
+    [2] = "bar",
+    [4] = "apple",
+    
+    ["chocolate"] = "sugar rush!",
+    ["circle"] = "shape"
+}
+
+for key, value in pairs(t) do
+    print(key, value)
+end
+```
+
+In Luau, `ipairs()` and `pairs()` in a generic `for` loop are recognized as idioms.
+They're optimized to no longer be called per iteration and directly return the variables.
+There is also another generic `for` loop idiom called the generalized iteration algorithm, which has 2 parts.
+
+- Firstly, it checks for the table's `__iter` metamethod.
+If found, the generic `for` loop calls the metamethod on loop startup and uses the returned generator function, "state", and "index".
+The generator function is not optimized and is always called per iteration.
+This function implements the iterator protocol as seen in the `next()` built-in function.
+The parameters passed into this function are the "state" and "index" from the metamethod.
+The returned values are the key/index and the value.
+After an iteration, the returned key/index becomes the new "index" value and the generator function is called again.
+When "index" is `nil`, the iteration stops.
+
+```luau
+-- Run the example first before starting to read through this example.
+-- Start reading from at the metatable.
+
+local function increment(state, index)
+	-- For illustration purposes, this function is simple.
+	-- It increments the index by 1 and returns "meow" every iteration.
+	
+	-- This shows calling the iterator function every iteration.
+	print("hit generator")
+	
+	local new_index
+	if index then
+		new_index = index + 1
+	else
+		new_index = 1
+	end
+	
+	if new_index == 3 then
+		-- This shows stopping the iteration with the returned index/key as `nil`.
+		-- The returned value is unused.
+		return nil, "grr"
+	end
+	
+	-- Returns the index/key and the value.
+	return new_index, "meow"
 end
 
--- iterate over a map
-const animals: { [string]: Animal } = get_animals()
-for animal_name, animal in animals do
-    print(`name: {animal_name}`)
-end
+local meta = {
+    -- >> Start here << --
+    -- >> Start here << --
+    -- >> Start here << --
+	__iter = function(self)
+		-- This shows the `for` loop calling `__iter` once.
+		print("hit __iter")
+		
+		-- Returns the generator function, "state", and "index".
+		-- After returning, "state" and "index" are magically passed into the generator function.
+		return increment, self, nil
+	end
+}
 
--- iterate 10 times
-for i = 1, 10 do
-    print(i)
-end
+local tbl = setmetatable({}, meta)
 
--- iterate through an array backwards
-for i = #cats, 1, -1 do
-    print(i, cat)
+for k, v in tbl do
+	-- This prints after the iterator function every iteration.
+	print(k, v)
+end
+```
+
+- Secondly, it uses the default table iteration algorithm. This algorithm is similar to `pairs()` and returns 2 variables.
+Unlike `pairs()`, it guarantees the same ordering as `ipairs()` until an index is `nil` (this index is skipped),
+and then changing to an unspecified ordering as `pairs()` for the remaining keys.
+
+```luau
+--[[
+    This is a previous example. The `for` loop idiom is changed.
+    
+    Expected output:
+    1 foo
+    2 bar
+    ...
+    unspecified
+    ...
+    
+    Notice that 1 and 2 are always ordered.
+    
+    The remaining keys should have an unspecified ordering.
+    However, the implementation details of Luau's initial table declaration makes it seem ordered.
+]]
+local t = {
+    [5] = "could be the first",
+    [1] = "foo",
+    [2] = "bar",
+    [4] = "apple",
+    
+    ["chocolate"] = "sugar rush!",
+    ["circle"] = "shape"
+}
+
+for key, value in t do
+    print(key, value)
 end
 ```
 <!-- /keyword -->
@@ -300,29 +622,82 @@ Calling a function can throw an error (also called an exception). To catch error
 <!-- /keyword -->
 
 <!-- keyword: local -->
-Define a new locally-scoped variable (binding).
+`local` is a reserved keyword.
 
-Unlike `const` bindings, `local` bindings may be mutated by reassignment.
+It declares a variable to have a mutable binding.
+In other words, reassigning the variable to associate with another value is allowed.
+
+The `local` keyword is an antonym to "global" variables.
+In Lua, global variables are declared as `IDENTIFIER = VALUE` when the variable isn't assigned,
+and assigns itself as a key into the `_G` global variable.
+
+All `local` variables are bound to the current scope, which is related to code blocks.
+See documentation for the `do` keyword for more details about code blocks.
 
 ```luau
-local firstName = getFirstName()
-if firstName then
-    local lastName = getLastName(firstName)
+local flag = true
+if flag then
+    -- Code block in a lower scope.
+    local val = 20
+    print(flag, val) -- true 20
 end
--- lastName no longer exists here
+-- `val` no longer exists outside of the scope
+print(flag, val) -- true nil
 ```
 
-You can use this with the `function` keyword to define a `local function`.
+In Lua, declaring a variable (without assigning a value) results in `nil`.
+
+```luau
+local a
+print(a) -- nil
+```
+
+In Luau, declaring a `local` variable and annotating it with a type will treat that variable as that type.
+However, this does not change runtime behavior, only at the type system level, and reading the `local` variable still results in `nil`.
+
+```luau
+--!strict
+local a: string
+print(a) -- nil
+
+-- No type error.
+-- However, `a = 123` is a type error because `123` is a number and not a string.
+a = "meow"
+print(a) -- "meow"
+```
+
+In Luau, if a `local` variable is never reassigned (shadowing is not reassignment),
+the bytecode compiler performs constant folding optimization to avoid allocating a register for the `local` variable.
+If the value is a table, it must be clear that the keys must are never reassigned so that this optimization happens - this case only happens for trivial situations.
+
+`local` can be applied to `function` to define a `local function`.
 
 ```luau
 local function foo(x: string, y: number)
     print(x, y)
 end
--- this is syntax sugar (except in optimizations) to
-local foo = function(x: string, y: number)
+```
+
+In Lua and Luau (with caveats, explained below), it is syntax sugar for defining a variable before assigning it the function.
+This approach allows calling the function itself within the function body, which allows recursive function calls.
+
+```luau
+local foo
+foo = function(x: string, y: number)
     print(x, y)
 end
 ```
+
+However, it is not strictly equivalent in Luau because calling `debug.info(foo, "n")` returns `"foo"` (the function name) in the first example and `""` (empty string) in the second example.
+This is because the assigned value is considered an anonymous function. In contrast, in Lua, calling `debug.getinfo(foo)` returns `"foo"` (the function name) in both examples.
+Furthermore, in both Lua and Luau, the bytecode compiler emits a specialized bytecode instruction for the first example, but emits extra bytecode instructions for the second example.
+Though, this difference is negligible.
+
+In Luau, `local function` (and `const function`) can be automatically inlined.
+The function body must be simple enough for the optimization to be profitable.
+Otherwise, no function inlining happens and the bytecode compiler emits a function call instruction.
+Technically, the bytecode compiler calculates an estimated profit using a pre-defined bytecode cost of all bytecodes within the function body.
+Recursive function calls can't be inlined. Functions cannot be marked by the user to force function inlining.
 <!-- /keyword -->
 
 <!-- keyword: nil -->
@@ -334,7 +709,9 @@ In the type system, `nil` can be represented by name or by the postfix operator 
 <!-- /keyword -->
 
 <!-- keyword: not -->
-`not` is a logical operator. It always evaluate to a `boolean`.
+`not` is a logical operator.
+It always evaluate to a `boolean`.
+It is a reserved keyword.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
 In Luwu, it added `none` and it's also considered falsy.
@@ -360,7 +737,9 @@ and does not return the value of `argument` unless it is originally `true` or `f
 <!-- /keyword -->
 
 <!-- keyword: or -->
-`or` is a logical operator. It does not always evaluate to a `boolean`.
+`or` is a logical operator.
+It does not always evaluate to a `boolean`.
+It is a reserved keyword.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
 In Luwu, it added `none` and it's also considered falsy.
@@ -392,7 +771,7 @@ Using this technical behavior, `or` can be used for default values without requi
 The examples show `20` as the default value as that is a truthy value.
 
 Combining the `or` keyword and the `and` keyword, which also has similar short-circuit evaluation behavior,
-it allows the `and-or` ternary operator, which is a side effect of the evaluation behavior.
+it allows the `and-or` idiom for ternary conditional operator, which is a side effect of the evaluation behavior.
 The first argument is the condition, second argument is the truthy result, and third argument is the falsy result.
 
 Examples:
@@ -409,7 +788,7 @@ However, the truthy result (second argument) cannot be falsy as that does not wo
 true and false or 30 -- 30 (expected `false`)
 ```
 
-In Luau, it added a lint and `if-else` *expression* for ternary operators to prevent this common pitfall and correctly evaluate to `false` in that example.
+In Luau, it added a lint and `if-else` *expression* for ternary conditional operators to prevent this common pitfall and correctly evaluate to `false` in that example.
 
 ```luau
 if true then false else 30 -- false
@@ -469,7 +848,9 @@ assert(name ~= nil and age ~= nil)
 <!-- /keyword -->
 
 <!-- keyword: then -->
-Separates the condition in an `if` or `elseif` branch from the branch body.
+`then` is a reserved keyword.
+It's a delimiter to separate the condition in an `if` or `elseif` clause from the body.
+See documentation for the `if` keyword for more details.
 <!-- /keyword -->
 
 <!-- keyword: true -->
@@ -514,15 +895,16 @@ The `until` expression may refer to locals from the `repeat` block.
 
 <!-- keyword: while -->
 Creates a `while` loop. It is a reserved keyword.
-This loop keeps repeating *while* its condition evaluates to a truthy value.
+If the condition evaluates to a truthy value, the code block executes, and then it checks the condition again.
+In other words, this loop keeps iterating *while* its condition evaluates to a truthy value.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
 In Luwu, it added `none` and it's also considered falsy.
 All other values are considered truthy.
 
 A `while` loop structure has a condition and a loop body.
-The condition follows after the `while` keyword and starts/continues iteration if it evaluates to a truthy value.
-The loop body is a code block. See hover documentation for the `do` keyword for more details about code blocks.
+The condition is checked for truthy before the code block executes and then checked again until it is falsy.
+The loop body is a code block. See documentation for the `do` keyword for more details about code blocks.
 
 In pseudocode:
 
@@ -550,6 +932,8 @@ while true do
     print("evil laughter!")
 end
 ```
+
+The technical term for this type of loop is a pre-test loop.
 <!-- /keyword -->
 
 <!-- keyword: class -->
@@ -671,8 +1055,9 @@ end
 <!-- keyword: const -->
 In Luau, `const` is a contextual keyword.
 It cannot be shadowed by a declaration using this name as the identifier.
+This keyword can be put in any positions valid for the `local` keyword.
 
-Initializes a variable to have an immutable binding.
+It initializes a variable to have an immutable binding.
 In other words, attempting to reassign the variable to associate with another value is a syntax error.
 However, if the associated value is a table, modifying its keys is allowed.
 Instead, tables still require `table.freeze()` to make the table read-only.
@@ -680,9 +1065,8 @@ Instead, tables still require `table.freeze()` to make the table read-only.
 All `const` usages disallow variable declaration and only allow variable initialization.
 In other words, `const IDENTIFIER` is disallowed, but `const IDENTIFIER = VALUE` is allowed.
 
-Despite `const` sounding similar to "constant", it is declaring a variable.
-To prevent ambiguity with `local`, they're called `const` variable.
-Variables declared using `local` is a `local` variable.
+All `const` variables are bound to the current scope, which is related to code blocks.
+See documentation for the `do` keyword for more details about code blocks.
 
 A `const` variable can be shadowed by a `local` variable, or by a `const` variable.
 This will *override* the previous value.
@@ -699,6 +1083,13 @@ const function foo()
 end
 foo = 1 -- Syntax error. Attempting to reassign the variable.
 ```
+
+Outside of reassignment differences, `const` is the same as `local`.
+See documentation for the `local` keyword for more details.
+
+Despite `const` sounding similar to "constant", it is declaring a variable.
+To prevent ambiguity with `local`, they're called `const` variable.
+Variables declared using `local` is a `local` variable.
 <!-- /keyword -->
 
 <!-- keyword: public -->
@@ -995,7 +1386,7 @@ In object-oriented programming, `self` is a naming convention to refer to the cu
 Lua has prototype-based programming with metatables and Luwu added first-class support for classes.
 Both are related to object-oriented programming.
 
-In any case, `self` gains a unique syntax highlighting for user accessibility.
+In any case, `self` gains a unique syntax highlighting color for user accessibility, if configured.
 Depending on the usage, `self` might be the first parameter in a function.
 <!-- /keyword -->
 
@@ -1059,7 +1450,8 @@ const cat2: Cat = {
 <!-- /keyword -->
 
 <!-- keyword: const_function -->
-A `local function` that cannot be mutated. Like `local function`s, these may be inlined by the compiler if their function bodies are small enough.
+Same as `local function`, but has assignment behaviors from the `const` keyword.
+See documentation for the `local` keyword for more details about `local function`.
 <!-- /keyword -->
 
 <!-- keyword: class_const -->
