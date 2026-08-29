@@ -461,6 +461,8 @@ The loop body executes first and then the loop evaluates the condition to start 
 If the condition evaluates to a falsy value, the code block will execute again, and then this loop repeats.
 In other words, the loop body executes, and then evaluates the condition, and this loop *repeats* this cycle *until* the condition is truthy.
 
+The condition for `until` has the same scope as the loop body.
+
 Example of good usage:
 
 ```luau
@@ -483,21 +485,10 @@ until false
 <!-- /keyword -->
 
 <!-- keyword: return -->
-Used as a statement to exit a function and provide zero or more values back to the caller.
-
-Most of the time, you should return one value. If you only want to return a value sometimes,
-return `nil` instead of returning nothing.
+In a function, `return` is used to exit from the function and *return* zero or more values to where the function is called.
 
 ```luau
--- This function returns 0 values
-const function do_something(thing: string | nil | none)
-    if not thing then -- handles both `nil` and `none`
-        return
-    end
-    handle_thing(thing)
-end
-
--- a normal function returns only one value
+-- This function returns 1 value at every codepath.
 const function do_thing(thing)
     if isbad(thing) then
         return nil
@@ -515,9 +506,43 @@ const function do_thing(thing)
 end
 ```
 
-A function that returns multiple values is called a "multiret function"; these include the common standard library functions `string.match` and `pcall`.
+```luau
+-- This function returns 0 values.
+const function do_something(thing: string | nil | none)
+    if not thing then -- handles both `nil` and `none`
+        return
+    end
+    handle_thing(thing)
+end
+```
 
-If your function returns multiple values, you should return the same number of values on all codepaths.
+At runtime, returning 0 values and returning `nil` have the same effect.
+The former defaults to `nil` when read, while the latter explicitly loads `nil` into the stack.
+
+For a file to be a module, `return` must *return* exactly 1 value.
+
+```luau
+local module = {}
+
+function module.add(x, y)
+    return x + y
+end
+
+return module
+```
+
+```luau
+-- This is a valid module that returns `nil`.
+-- `nil` is 1 value.
+return nil
+```
+
+```luau
+-- This is not allowed. At runtime, this will throw an error.
+return
+```
+
+If the function returns multiple values, it should return the same number of values on all codepaths.
 
 ```luau
 const function call()
@@ -528,6 +553,8 @@ const hi, bye = call()
 const name, age = string.match("Cat<([%w]+), ([%d]+)")
 assert(name ~= nil and age ~= nil)
 ```
+
+If strict mode type checking is enabled, it will throw a type error to force explicit `nil` when the returned values are mismatched.
 <!-- /keyword -->
 
 <!-- keyword: then -->
@@ -571,7 +598,9 @@ end
 
 <!-- keyword: until -->
 `until` evaluates the condition of a `repeat` loop.
-It can read `local` and `const` variables from the loop body.
+
+The condition has the same scope as the loop body.
+It can read `local` and `const` variables from it.
 <!-- /keyword -->
 
 <!-- keyword: while -->
@@ -601,7 +630,7 @@ end
 <!-- /keyword -->
 
 <!-- keyword: class -->
-Define a unique data structure with fields, functions, and methods.
+Define a class blueprint with fields, functions, and methods.
 
 ```luau
 class Cat
@@ -614,11 +643,19 @@ class Cat
 end
 -- use the table constructor to create an `object` of this class
 const cat = Cat { name = "Taz", age = 12 }
+const cat_say = cat:speak("I use Luwu!")
+print(cat_say)
+
+-- this also works
+const kitten = Cat({name = "Ballistic Missile", age = 1})
+const kitten_say = kitten:speak()
+print(kitten_say)
 ```
 
-To import your class in another module (another file), `export` it with `export class`.
+Use `export` to make it an `export class` and expose the class.
 
 To customize the behavior of the class's constructor, give it an `__init` constructor function.
+If `__init` is `private`, the class needs to expose a `public function` that calls `__init`.
 
 ```luau
 export class Person
@@ -633,7 +670,7 @@ end
 const attorney = Person("Mike", "Ross")
 ```
 
-Use `class.isinstance` to check if an `object` is an instance of a class.
+Use `class.isinstance()` to check if an `object` is an instance of a class.
 
 ```luau
 type Animal =
@@ -647,7 +684,9 @@ const function get_animal(name): Animal | none
     return animal
 end
 
+-- `animal` is an object. It is an instance of either a `Cat` class or `Dog` class.
 const animal = get_animal("Taz")
+
 if animal then
     if class.isinstance(animal, Cat) then
         print(animal:meow())
@@ -657,7 +696,7 @@ if animal then
 end
 ```
 
-More complicated classes can have the `public`, `private`, `const` keywords, generic parameters, and default values.
+Classes can have `public`, `private`, and `const` fields, generic parameters, and default values.
 
 ```luau
 export class Set<T>
@@ -798,42 +837,6 @@ print(key.private_key) -- runtime error
 
 <!-- keyword: export -->
 `export` can expose values, classes, or type aliases from a module into the file that called `require()` on the module.
-
-<!-- NOTE: Export-by-value is still experimental. This is commented out.
-For values, `export` implicitly adds the identifier (as the key) and value (as the value) into the module's returned table.
-These keys are `const` variables.
-
-```luau
--- module.luau --
-export local LOCAL_VALUE = 100
-export const CONST_VALUE = 200
-
--- foo.luau --
-local module = require("path/to/foo.luau")
-print(module.LOCAL_VALUE) -- 100
-print(module.CONST_VALUE) -- 200
-
--- These are not allowed.
-module.LOCAL_VALUE = 50
-module.CONST_VALUE = 50
-```
-
-This is syntax sugar to the equivalent in the `module.luau`:
-
-```luau
-local LOCAL_VALUE = 100
-const CONST_VALUE = 200
-
--- `_EXP` is a pseudo-name.
-local _EXP = {}
-_EXP.LOCAL_VALUE = LOCAL_VALUE
-_EXP.CONST_VALUE = CONST_VALUE
-return table.freeze(_EXP)
-```
-
-Because of this, it also disallows the module to have return 1 value at the end of the file.
-That is, `return` is no longer required for the file to be a module.
--->
 
 For type aliases, `export` allows the file that called `require()` on the module to use the type from the module.
 The type aliases can be used before the `require()` call.
