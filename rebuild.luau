@@ -59,9 +59,6 @@ const luwu_test_path = env.vars.get("LUWU_TEST_PATH")
 
 const is_release = parsed.flags["--release"] == true
 
-const function display_home(path: string): string
-    return str.replace(path, fs.path.home(), "~")
-end
 const function ensure_dependencies()
     const has_cmake = #env.where("cmake") > 0
     const has_git = #env.where("git") > 0
