@@ -33,6 +33,11 @@ struct ToStringNamedFunctionOpts
     // If true, the first parameter (`self`) is printed bare (`self`) with no type annotation,
     // rather than being hidden entirely. Ignored unless hideFirstParameter is false.
     bool hideFirstParameterType = false;
+    // Indentation of the line the signature is printed on (matching the "function"/"public"
+    // keyword). When the signature has more than 3 parameters, they're broken out one per line,
+    // indented one level deeper than this, with the closing "): ReturnType" brought back to this
+    // indentation -- Rust-style. Ignored when `multiline` is set.
+    std::string baseIndent = "";
 };
 
 std::string toStringNamedFunction(const Luau::ModulePtr& module, const Luau::FunctionType* ftv, const NameOrExpr nameOrFuncExpr,

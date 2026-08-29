@@ -92,12 +92,19 @@ struct ClientInlayHintsConfiguration
     size_t typeHintMaxLength = 50;
     /// Whether type inlay hints should be made insertable
     bool makeInsertable = true;
+    /// Whether to show a trailing hint on the `end` of long functions/loops/classes naming what
+    /// they close, similar to rust-analyzer's closing brace hints.
+    bool blockEndHints = true;
+    /// Minimum number of lines a block must span (from its opening keyword to `end`) before a
+    /// block end hint is shown for it.
+    size_t blockEndHintsMinLines = 35;
 
     inline bool operator==(const ClientInlayHintsConfiguration& rhs) const
     {
         return this->parameterNames == rhs.parameterNames && this->variableTypes == rhs.variableTypes && this->parameterTypes == rhs.parameterTypes &&
                this->functionReturnTypes == rhs.functionReturnTypes && this->hideHintsForErrorTypes == rhs.hideHintsForErrorTypes &&
-               this->hideHintsForMatchingParameterNames == rhs.hideHintsForMatchingParameterNames && this->typeHintMaxLength == rhs.typeHintMaxLength;
+               this->hideHintsForMatchingParameterNames == rhs.hideHintsForMatchingParameterNames && this->typeHintMaxLength == rhs.typeHintMaxLength &&
+               this->blockEndHints == rhs.blockEndHints && this->blockEndHintsMinLines == rhs.blockEndHintsMinLines;
     }
 
     inline bool operator!=(const ClientInlayHintsConfiguration& rhs) const
@@ -106,7 +113,7 @@ struct ClientInlayHintsConfiguration
     }
 };
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ClientInlayHintsConfiguration, parameterNames, variableTypes, parameterTypes, functionReturnTypes,
-    hideHintsForErrorTypes, hideHintsForMatchingParameterNames, typeHintMaxLength, makeInsertable);
+    hideHintsForErrorTypes, hideHintsForMatchingParameterNames, typeHintMaxLength, makeInsertable, blockEndHints, blockEndHintsMinLines);
 
 struct ClientHoverConfiguration
 {

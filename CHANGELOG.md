@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added a `blockEndHints` inlay hint (enabled by default) that labels the `end` of long functions, loops, `if`/`elseif`/`else` chains, and classes (e.g. `end function foo`, `end for k, v in pairs(t)`) once a block spans at least `blockEndHintsMinLines` lines (default 35), similar to rust-analyzer's closing brace hints
+
 ### Fixed
 
 - Fixed `@self` string-require aliases resolving from the filesystem instead of the sourcemap tree for non-DataModel roots ([#1511](https://github.com/JohnnyMorganz/luau-lsp/issues/1511))
+- Fixed the "Generate `__init` from class properties" autocomplete suggestion popping up inside unrelated method bodies, parameter lists, and after table constructors, instead of only directly in a class body
+- Fixed hovering over `vector` showing "extern type vector" instead of `vector`
 
 ## [1.69.0] - 2026-07-14
 

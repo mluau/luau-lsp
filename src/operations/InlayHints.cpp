@@ -58,6 +58,41 @@ static std::vector<lsp::InlayHintLabelPart> toInlayHintLabelParts(
     return parts;
 }
 
+// Pretty-prints an expression onto a single line, truncating it if it's too long to be a useful
+// hint (e.g. a large inline table or function passed as the iterator expression).
+std::string singleLineExprString(Luau::AstExpr* expr, size_t maxLen = 40)
+{
+    // Luau::toString() has no length limit and fully pretty-prints the entire subtree before we
+    // get a chance to truncate it -- for a large inline table/call chain that can mean allocating
+    // megabytes (or crashing) just to build a hint we'd immediately cut down to `maxLen` chars.
+    // Bail out early using only cheap Location arithmetic, before ever calling it, whenever the
+    // expression couldn't possibly fit anyway.
+    const auto& begin = expr->location.begin;
+    const auto& end = expr->location.end;
+    if (end.line != begin.line || end.column < begin.column || end.column - begin.column > maxLen * 4)
+        return "...";
+
+    std::string result = Luau::toString(expr);
+    std::replace(result.begin(), result.end(), '\n', ' ');
+
+    // Collapse repeated whitespace left over from multi-line formatting
+    std::string collapsed;
+    bool lastWasSpace = false;
+    for (char c : result)
+    {
+        bool isSpace = std::isspace(static_cast<unsigned char>(c));
+        if (isSpace && lastWasSpace)
+            continue;
+        collapsed += isSpace ? ' ' : c;
+        lastWasSpace = isSpace;
+    }
+
+    if (collapsed.size() > maxLen)
+        collapsed = collapsed.substr(0, maxLen) + "...";
+
+    return collapsed;
+}
+
 bool isLiteral(const Luau::AstExpr* expr)
 {
     return expr->is<Luau::AstExprConstantBool>() || expr->is<Luau::AstExprConstantString>() || expr->is<Luau::AstExprConstantNumber>() ||
@@ -137,6 +172,29 @@ struct InlayHintVisitor : public Luau::AstVisitor
         hint.label.insert(hint.label.end(), parts.begin(), parts.end());
     }
 
+    // Adds a trailing hint after the `end` of a block that spans at least `blockEndHintsMinLines`
+    // lines, naming what it closes (e.g. "function foo") -- similar to rust-analyzer's closing
+    // brace hints, useful for finding your way back after scrolling past a long block. No comment
+    // marker is prepended since inlay hints already render as non-insertable ghost text.
+    void addBlockEndHint(const Luau::Location& location, const std::string& label)
+    {
+        if (!config.inlayHints.blockEndHints)
+            return;
+
+        if (location.end.line <= location.begin.line)
+            return;
+
+        size_t lineSpan = location.end.line - location.begin.line + 1;
+        if (lineSpan < config.inlayHints.blockEndHintsMinLines)
+            return;
+
+        lsp::InlayHint hint;
+        hint.position = textDocument->convertPosition(location.end);
+        hint.paddingLeft = true;
+        hint.label.push_back(lsp::InlayHintLabelPart{" " + label + " "});
+        hints.emplace_back(hint);
+    }
+
     bool visit(Luau::AstStatLocal* local) override
     {
         if (!config.inlayHints.variableTypes)
@@ -193,6 +251,26 @@ struct InlayHintVisitor : public Luau::AstVisitor
 
     bool visit(Luau::AstStatForIn* forIn) override
     {
+        {
+            std::string varNames;
+            for (size_t i = 0; i < forIn->vars.size; i++)
+            {
+                if (i > 0)
+                    varNames += ", ";
+                varNames += forIn->vars.data[i]->name.value;
+            }
+
+            std::string valueNames;
+            for (size_t i = 0; i < forIn->values.size; i++)
+            {
+                if (i > 0)
+                    valueNames += ", ";
+                valueNames += singleLineExprString(forIn->values.data[i]);
+            }
+
+            addBlockEndHint(forIn->location, "for " + varNames + " in " + valueNames);
+        }
+
         if (!config.inlayHints.variableTypes)
             return true;
 
@@ -237,8 +315,60 @@ struct InlayHintVisitor : public Luau::AstVisitor
         return true;
     }
 
+    bool visit(Luau::AstStatFor* for_) override
+    {
+        addBlockEndHint(for_->location, "for " + std::string(for_->var->name.value));
+        return true;
+    }
+
+    bool visit(Luau::AstStatWhile* while_) override
+    {
+        addBlockEndHint(while_->location, "while");
+        return true;
+    }
+
+    bool visit(Luau::AstStatIf* ifStat) override
+    {
+        addBlockEndHint(ifStat->location, "if " + singleLineExprString(ifStat->condition));
+
+        // Every `elseif` in a chain is its own nested AstStatIf (as `elsebody`), sharing the same
+        // `location.end` (the chain's final `end`) as the outer `if` -- so letting the default
+        // recursion re-enter this override for each of them would stack up duplicate hints at that
+        // same position. Walk the chain manually instead: visit each condition/thenbody ourselves,
+        // and only recurse normally (via `visit`) into a trailing `else` block.
+        Luau::AstStat* current = ifStat;
+        while (auto* asIf = current->as<Luau::AstStatIf>())
+        {
+            asIf->condition->visit(this);
+            asIf->thenbody->visit(this);
+
+            if (!asIf->elsebody)
+                break;
+
+            if (asIf->elsebody->as<Luau::AstStatIf>())
+            {
+                current = asIf->elsebody;
+                continue;
+            }
+
+            asIf->elsebody->visit(this);
+            break;
+        }
+
+        return false;
+    }
+
+    bool visit(Luau::AstStatClass* classStat) override
+    {
+        addBlockEndHint(classStat->location, "class " + std::string(classStat->name->name.value));
+        return true;
+    }
+
     bool visit(Luau::AstExprFunction* func) override
     {
+        if (func->debugname.value && *func->debugname.value)
+            addBlockEndHint(func->location, "function " + std::string(func->debugname.value));
+
         auto ty = module->astTypes.find(func);
         if (!ty)
             return false;

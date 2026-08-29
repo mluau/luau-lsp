@@ -158,6 +158,9 @@ static std::string formatMethodLine(
     types::ToStringNamedFunctionOpts funcOpts;
     funcOpts.hideTableKind = !showTableKinds;
     funcOpts.hideFirstParameterType = method->function->args.size > 0 && method->function->args.data[0]->name == "self";
+    // Member lines are printed at "    " indentation (see buildClassFieldSummary) -- match that so
+    // a long parameter list's continuation lines line up with the "public"/"private" keyword.
+    funcOpts.baseIndent = "    ";
     return types::toStringNamedFunction(module, ftv, method->functionName.value, scope, funcOpts);
 }
 
@@ -240,14 +243,19 @@ static std::optional<std::string> buildClassFieldSummary(
     bool hasConstructorLine = false;
 
     bool hasCustomInit = false;
+    // If nothing in the class is private, the "public " prefix on every member line is just noise
+    // -- omit it and let the reader assume public, matching how `private` alone would otherwise
+    // stand out on a member line if there were any.
+    bool anyPrivateMember = false;
     for (const auto& member : finder.result->members)
     {
         if (const auto* method = member.get_if<Luau::AstClassMethod>(); method && method->functionName == "__init")
-        {
             hasCustomInit = true;
-            break;
-        }
+
+        if (Luau::visit([](auto&& m) -> bool { return m.visibility == Luau::AstClassMemberVisibility::Private; }, member))
+            anyPrivateMember = true;
     }
+    std::string publicPrefix = anyPrivateMember ? "public " : "";
 
     // Instance fields (e.g. `const inner = ...` with no annotation) only live in the *object*
     // type's props -- the class value's own `et` only has static members and the constructor. So
@@ -300,8 +308,13 @@ static std::optional<std::string> buildClassFieldSummary(
                                 // object. But the `{ ... }` table shape itself has no way to express
                                 // visibility, so also list private fields again separately below the
                                 // table, marked `private`, so their visibility isn't lost.
-                                std::string fields;
+                                std::vector<std::string> fieldEntries;
                                 std::string privateFields;
+                                // If any field's own type is itself a nested table/function (has a
+                                // brace or paren in its printed form), folding everything onto one
+                                // line reads as an ambiguous wall of braces -- always break those
+                                // out one field per line instead, regardless of overall length.
+                                bool anyComplexFieldType = false;
                                 for (const auto& fieldMember : finder.result->members)
                                 {
                                     const auto* prop = fieldMember.get_if<Luau::AstClassProperty>();
@@ -315,16 +328,49 @@ static std::optional<std::string> buildClassFieldSummary(
                                     std::string fieldType = Luau::toString(Luau::follow(*propIt->second.readTy));
                                     std::string constPrefix = prop->isConst ? "const " : "";
 
-                                    fields += "    " + constPrefix + std::string(prop->name.value) + ": " + fieldType + ",\n";
+                                    if (fieldType.find('{') != std::string::npos || fieldType.find('(') != std::string::npos)
+                                        anyComplexFieldType = true;
+
+                                    fieldEntries.push_back(constPrefix + std::string(prop->name.value) + ": " + fieldType);
 
                                     if (prop->visibility == Luau::AstClassMemberVisibility::Private)
                                         privateFields += "    private " + constPrefix + std::string(prop->name.value) + ": " + fieldType + "\n";
                                 }
 
-                                if (!fields.empty() || !privateFields.empty())
+                                if (!fieldEntries.empty() || !privateFields.empty())
                                 {
-                                    header += " {\n" + fields + "}\n" + privateFields;
-                                    header.pop_back(); // drop the trailing '\n' -- the caller adds its own below
+                                    // Prefer folding the fields into the header on one line -- it
+                                    // reads like a constructor call (`Name{ field = value, ... }`)
+                                    // -- but only while that line stays reasonably short; beyond
+                                    // that it's more readable broken out one field per line.
+                                    static constexpr size_t kMaxInlineFieldsWidth = 100;
+                                    std::string inlineFields = "{ ";
+                                    for (size_t i = 0; i < fieldEntries.size(); i++)
+                                    {
+                                        if (i > 0)
+                                            inlineFields += ", ";
+                                        inlineFields += fieldEntries[i];
+                                    }
+                                    inlineFields += " }";
+
+                                    if (!anyComplexFieldType && header.size() + 1 + inlineFields.size() <= kMaxInlineFieldsWidth)
+                                    {
+                                        header += " " + inlineFields;
+                                        if (!privateFields.empty())
+                                        {
+                                            header += "\n" + privateFields;
+                                            header.pop_back(); // drop the trailing '\n' -- the caller adds its own below
+                                        }
+                                    }
+                                    else
+                                    {
+                                        std::string fields;
+                                        for (const auto& entry : fieldEntries)
+                                            fields += "    " + entry + ",\n";
+
+                                        header += " {\n" + fields + "}\n" + privateFields;
+                                        header.pop_back(); // drop the trailing '\n' -- the caller adds its own below
+                                    }
                                     hasConstructorLine = true;
                                 }
                             }
@@ -343,7 +389,7 @@ static std::optional<std::string> buildClassFieldSummary(
             if (prop->visibility == Luau::AstClassMemberVisibility::Private)
                 continue;
 
-            std::string line = std::string("    public ") + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
+            std::string line = "    " + publicPrefix + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
             // Prefer the instantiated type from `et->props` over the AST-resolved type of the
             // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
             // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
@@ -403,7 +449,7 @@ static std::optional<std::string> buildClassFieldSummary(
         std::string line = formatMethodLine(module, isStatic ? et : objectEt, method, scope, showTableKinds);
         if (line.empty())
             continue;
-        line = "    public " + line;
+        line = "    " + publicPrefix + line;
 
         // The class value's summary shows static functions in the primary section (alongside the
         // constructor) and instance methods (methods callable on objects of the class) in a
@@ -435,11 +481,9 @@ static std::optional<std::string> buildClassFieldSummary(
 
     if (isClassValue && !instanceMemberLines.empty())
     {
-        // Only insert a blank-line separator if there's a preceding static-member section to
-        // separate from -- the header (constructor) already ends with its own newline, so a
-        // constructor-only class would otherwise get a spurious blank line before instance members.
-        if (!memberLines.empty())
-            summary += "\n";
+        // No separator between the static-function section and the instance-method section --
+        // instance methods all take a leading `self` parameter, which already makes the split
+        // obvious without a blank line or comment header.
         for (const auto& line : instanceMemberLines)
             summary += line + "\n";
         if (totalInstanceMembers > instanceMemberLines.size())
@@ -491,6 +535,7 @@ static std::string buildExternTypeSummary(
             // leading `self` parameter bare (no type), matching how class instance methods are
             // displayed; the reader already knows the self type from the header above.
             funcOpts.hideFirstParameterType = !ftv->argNames.empty() && ftv->argNames[0] && ftv->argNames[0]->name == "self";
+            funcOpts.baseIndent = "    ";
             line += types::toStringNamedFunction(module, ftv, name, scope, funcOpts);
         }
         else
@@ -817,6 +862,13 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
         else
             typeString = codeBlock("luau", typeString);
     }
+    else if (auto et = Luau::get<Luau::ExternType>(*type); et && et->name == "vector")
+    {
+        // `vector` is a language primitive, but it's modeled internally as an ExternType (see
+        // BuiltinDefinitions.cpp) just to get free `.x`/`.y`/`.z` property access -- show it plainly
+        // instead of as "extern type vector".
+        typeString = codeBlock("luau", "vector");
+    }
     else if (auto et = Luau::get<Luau::ExternType>(*type))
     {
         // A "declare extern type"-style extern type (e.g. a host-provided type like Instance), as
@@ -843,7 +895,13 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
     }
     else if (exprOrLocal.getLocal() || node->as<Luau::AstExprLocal>())
     {
-        std::string builder = "local ";
+        bool isConst = false;
+        if (auto local = exprOrLocal.getLocal())
+            isConst = local->isConst;
+        else if (auto localExpr = node->as<Luau::AstExprLocal>())
+            isConst = localExpr->local->isConst;
+
+        std::string builder = isConst ? "const " : "local ";
         if (auto name = exprOrLocal.getName())
             builder += name->value;
         else

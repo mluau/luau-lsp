@@ -268,7 +268,7 @@
           "name": "entity.name.type.luau"
         }
       },
-      "end": "(?<=[a-zA-Z0-9_>)])(?!\\s*[<(])",
+      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({])",
       "name": "meta.class.luau",
       "patterns": [
         {
@@ -311,6 +311,53 @@
                 }
               },
               "end": "(?=[\\),])",
+              "patterns": [
+                {
+                  "include": "#type_literal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "comment": "Not valid Luau syntax -- only used to highlight the POD-constructor field list (`class Name { field: Type, ... }`) shown in class hovers.",
+          "begin": "(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.table.begin.luau"
+            }
+          },
+          "end": "(\\})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.table.end.luau"
+            }
+          },
+          "name": "meta.table.luau",
+          "patterns": [
+            {
+              "include": "#comment"
+            },
+            {
+              "match": "\\b(const)\\b",
+              "name": "storage.modifier.const.luau"
+            },
+            {
+              "match": "[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*:)",
+              "name": "variable.parameter.function.luau"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.arguments.luau"
+            },
+            {
+              "begin": ":",
+              "beginCaptures": {
+                "0": {
+                  "name": "keyword.operator.type.luau"
+                }
+              },
+              "end": "(?=[,}])",
               "patterns": [
                 {
                   "include": "#type_literal"

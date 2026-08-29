@@ -61,6 +61,91 @@ Luau::LoadDefinitionFileResult registerDefinitions(
 
 using NameOrExpr = std::variant<std::string, Luau::AstExpr*>;
 
+namespace
+{
+// Finds the byte range of the first top-level "(...)" span in `s` (e.g. the parameter list of
+// "function foo(a: number, b: string): boolean"), tracking paren depth so nested parens (in
+// argument types) don't confuse the match. Returns [openParenIndex, onePastCloseParenIndex).
+std::optional<std::pair<size_t, size_t>> findTopLevelParens(const std::string& s)
+{
+    auto openParen = s.find('(');
+    if (openParen == std::string::npos)
+        return std::nullopt;
+
+    int depth = 0;
+    for (size_t i = openParen; i < s.size(); i++)
+    {
+        if (s[i] == '(')
+            depth++;
+        else if (s[i] == ')')
+        {
+            depth--;
+            if (depth == 0)
+                return std::make_pair(openParen, i + 1);
+        }
+    }
+    return std::nullopt;
+}
+
+// Splits a parameter list's inner content on top-level commas, skipping commas nested inside (),
+// {}, [], or <> -- e.g. generic type arguments, table types, or tuple return types.
+std::vector<std::string> splitTopLevelParams(const std::string& s)
+{
+    std::vector<std::string> parts;
+    int depth = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < s.size(); i++)
+    {
+        char c = s[i];
+        if (c == '(' || c == '{' || c == '[' || c == '<')
+            depth++;
+        else if (c == ')' || c == '}' || c == ']' || c == '>')
+            depth--;
+        else if (c == ',' && depth == 0)
+        {
+            parts.push_back(s.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    parts.push_back(s.substr(start));
+    return parts;
+}
+
+// If printing `functionString` on the line it's given (at `baseIndent`) would run past
+// `kMaxLineWidth`, reformats its parameter list Rust-style with one parameter per line, indented
+// one level deeper than `baseIndent`, with the closing "): ReturnType" brought back to
+// `baseIndent` -- so a long signature doesn't run off the edge of the hover box. Triggers on line
+// length rather than parameter count, since a handful of long type names can overflow just as
+// easily as many short ones.
+std::string formatLongParamList(const std::string& functionString, const std::string& baseIndent)
+{
+    static constexpr size_t kMaxLineWidth = 100;
+
+    if (baseIndent.size() + functionString.size() <= kMaxLineWidth)
+        return functionString;
+
+    auto parens = findTopLevelParens(functionString);
+    if (!parens)
+        return functionString;
+    auto [openParen, closeParenEnd] = *parens;
+
+    std::string inner = functionString.substr(openParen + 1, closeParenEnd - openParen - 2);
+    if (inner.empty())
+        return functionString;
+
+    auto params = splitTopLevelParams(inner);
+
+    std::string result = functionString.substr(0, openParen + 1);
+    for (auto param : params)
+    {
+        trim(param);
+        result += "\n" + baseIndent + "    " + param + ",";
+    }
+    result += "\n" + baseIndent + functionString.substr(closeParenEnd - 1);
+    return result;
+}
+} // namespace
+
 // Converts an FTV and function call to a nice string
 // In the format "function NAME(args): ret"
 std::string toStringNamedFunction(const Luau::ModulePtr& module, const Luau::FunctionType* ftv, const NameOrExpr nameOrFuncExpr,
@@ -81,31 +166,41 @@ std::string toStringNamedFunction(const Luau::ModulePtr& module, const Luau::Fun
     // They don't look great, maybe we should upstream this as an option?
     replaceAll(functionString, "_: ", "");
 
+    // Rust-style long-parameter-list wrapping only kicks in when the caller hasn't already
+    // requested Luau's own multiline pretty-printing above (via `useLineBreaks`), to avoid the two
+    // formatting styles fighting each other.
+    auto finalize = [&](std::string result) -> std::string
+    {
+        if (stringOpts.multiline)
+            return result;
+        return formatLongParamList(result, stringOpts.baseIndent);
+    };
+
     // If a name has already been provided, just use that
     if (auto name = std::get_if<std::string>(&nameOrFuncExpr))
     {
-        return "function " + *name + functionString;
+        return finalize("function " + *name + functionString);
     }
     auto funcExprPtr = std::get_if<Luau::AstExpr*>(&nameOrFuncExpr);
 
     // TODO: error here?
     if (!funcExprPtr)
-        return "function" + functionString;
+        return finalize("function" + functionString);
     auto funcExpr = *funcExprPtr;
 
     // See if it's just in the form `func(args)`
     if (auto local = funcExpr->as<Luau::AstExprLocal>())
     {
-        return "function " + std::string(local->local->name.value) + functionString;
+        return finalize("function " + std::string(local->local->name.value) + functionString);
     }
     else if (auto global = funcExpr->as<Luau::AstExprGlobal>())
     {
-        return "function " + std::string(global->name.value) + functionString;
+        return finalize("function " + std::string(global->name.value) + functionString);
     }
     else if (funcExpr->as<Luau::AstExprGroup>() || funcExpr->as<Luau::AstExprFunction>())
     {
         // In the form (expr)(args), which implies that it's probably a IIFE
-        return "function" + functionString;
+        return finalize("function" + functionString);
     }
 
     // See if the name belongs to a ClassType
@@ -136,12 +231,12 @@ std::string toStringNamedFunction(const Luau::ModulePtr& module, const Luau::Fun
     }
 
     if (!parentIt)
-        return "function" + methodName + functionString;
+        return finalize("function" + methodName + functionString);
 
     if (auto name = getTypeName(*parentIt))
         baseName = *name;
 
-    return "function " + baseName + methodName + functionString;
+    return finalize("function " + baseName + methodName + functionString);
 }
 
 std::string toStringReturnType(Luau::TypePackId retTypes, Luau::ToStringOptions options)
@@ -1064,7 +1159,42 @@ struct FindClassStatContainingPosition : Luau::AstVisitor
     bool visit(Luau::AstStatClass* node) override
     {
         if (node->location.containsClosed(targetPosition))
-            result = node;
+        {
+            // Only consider the position "in" this class if it isn't actually nested inside one of
+            // its existing methods (e.g. in the parameter list, in the body, or on a trailing blank
+            // line after the last statement but before that method's own `end`) -- typing
+            // `function _` as a local function, or just sitting inside an unrelated method, shouldn't
+            // suggest generating a class-level `__init`.
+            //
+            // We use the method's full location (signature through its own `end`), not just the
+            // body's, so this also covers the parameter list and any trailing blank lines the body
+            // block's own location doesn't extend to (e.g. right after a table constructor that was
+            // the last statement).
+            //
+            // We only trust this at all when the *class itself* closed cleanly (`node->hasEnd`).
+            // When the user is mid-typing an incomplete member (e.g. `function _` with no `(`/`end`
+            // yet), error recovery can attribute the class's own closing `end` to that broken member
+            // instead, making it falsely look like a complete, "existing" method that contains the
+            // cursor -- and simultaneously leaves the class's own `hasEnd` false, which is how we
+            // detect and ignore that case.
+            bool insideExistingMethod = false;
+            if (node->hasEnd)
+            {
+                for (const auto& member : node->members)
+                {
+                    if (const auto* method = member.get_if<Luau::AstClassMethod>();
+                        method && method->function && method->function->body && method->function->body->hasEnd &&
+                        method->function->location.containsClosed(targetPosition))
+                    {
+                        insideExistingMethod = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!insideExistingMethod)
+                result = node;
+        }
         return true;
     }
 };

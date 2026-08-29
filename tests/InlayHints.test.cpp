@@ -1079,4 +1079,141 @@ TEST_CASE_FIXTURE(Fixture, "inlay_hint_does_not_crash_on_truncated_intersection_
     REQUIRE_GE(result.size(), 1);
 }
 
+TEST_CASE_FIXTURE(Fixture, "show_block_end_hint_on_long_function")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        local function foo()
+            local x = 1
+            local y = 2
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    REQUIRE_EQ(result.size(), 1);
+    CHECK_EQ(labelToString(result[0].label), " function foo ");
+    CHECK_EQ(result[0].paddingLeft, true);
+}
+
+TEST_CASE_FIXTURE(Fixture, "no_block_end_hint_on_short_function")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        local function foo()
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    CHECK_EQ(result.size(), 0);
+}
+
+TEST_CASE_FIXTURE(Fixture, "no_block_end_hint_when_disabled")
+{
+    client->globalConfig.inlayHints.blockEndHints = false;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        local function foo()
+            local x = 1
+            local y = 2
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    CHECK_EQ(result.size(), 0);
+}
+
+TEST_CASE_FIXTURE(Fixture, "show_block_end_hint_on_long_numeric_for_loop")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        for i = 1, 10 do
+            print(i)
+            print(i)
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    REQUIRE_EQ(result.size(), 1);
+    CHECK_EQ(labelToString(result[0].label), " for i ");
+}
+
+TEST_CASE_FIXTURE(Fixture, "show_block_end_hint_on_long_generic_for_loop")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        for k, v in pairs({}) do
+            print(k)
+            print(v)
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    REQUIRE_EQ(result.size(), 1);
+    CHECK_EQ(labelToString(result[0].label), " for k, v in pairs({}) ");
+}
+
+TEST_CASE_FIXTURE(Fixture, "show_block_end_hint_on_long_while_loop")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        while true do
+            print(1)
+            print(2)
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    REQUIRE_EQ(result.size(), 1);
+    CHECK_EQ(labelToString(result[0].label), " while ");
+}
+
+TEST_CASE_FIXTURE(Fixture, "show_block_end_hint_on_long_plain_if")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        if true then
+            print(1)
+            print(2)
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    REQUIRE_EQ(result.size(), 1);
+    CHECK_EQ(labelToString(result[0].label), " if true ");
+}
+
+TEST_CASE_FIXTURE(Fixture, "show_single_block_end_hint_on_long_if_elseif_else_chain")
+{
+    client->globalConfig.inlayHints.blockEndHints = true;
+    client->globalConfig.inlayHints.blockEndHintsMinLines = 3;
+
+    auto source = R"(
+        local x = 1
+        if x == 1 then
+            print(1)
+        elseif x == 2 then
+            print(2)
+        else
+            print(3)
+        end
+    )";
+
+    auto result = processInlayHint(this, source);
+    REQUIRE_EQ(result.size(), 1);
+    CHECK_EQ(labelToString(result[0].label), " if x == 1 ");
+}
+
 TEST_SUITE_END();
