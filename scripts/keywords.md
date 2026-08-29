@@ -156,7 +156,9 @@ print(a) -- 1
 <!-- /keyword -->
 
 <!-- keyword: if -->
-Creates an `if` *statement* or `if` *expression*, depending on the context. It is a reserved keyword.
+Creates an `if` *statement* or `if` *expression*, depending on the context.
+It is a reserved keyword.
+
 If the condition evaluates to a truthy value, the code block executes, and then skips over the remaining conditional branches, if any.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
@@ -313,15 +315,16 @@ const found_cat = if cat == nyla then nyla elseif cat == taz then cats[taz] else
 
 <!-- keyword: end -->
 `end` is a reserved keyword.
-It ends a code block. See documentations for the `do` keyword for more details about code blocks.
+
+It ends a code block. It does not end a chunk.
+See documentations for the `do` keyword for more details about code blocks.
 
 It also ends a function body. However, this is the same as a code block.
-
-It cannot end a chunk.
 <!-- /keyword -->
 
 <!-- keyword: false -->
-The falsy `boolean` value. It is a reserved keyword.
+The falsy `boolean` value.
+It is a reserved keyword.
 
 It is one of the few falsy values.
 In Lua, the other falsy value is `nil`.
@@ -329,8 +332,9 @@ In Luwu, `none` is also a falsy value.
 <!-- /keyword -->
 
 <!-- keyword: for -->
-Creates a `for` loop. It is a reserved keyword.
-The exact loop depends on the context.
+Creates a `for` loop.
+It is a reserved keyword.
+The exact form of the `for` loop depends on the context.
 
 In Lua, a `for` loop has 2 forms: numeric and generic.
 
@@ -535,42 +539,104 @@ end
 <!-- /keyword -->
 
 <!-- keyword: function -->
-Defines a `function`. A function may be called to evaluate a code block and `return` a result.
+`function` is a reserved keyword.
 
-In Luwu, functions are first-class and can be passed around, passed to functions, used as a key in a hash table, and more.
+It declares a `function`.
+By default, all functions are "global" variables.
 
-In the type system, functions are represented with `(paramname: Type) -> (ReturnType1, ReturnType2)` syntax.
+A function structure has a list of parameters and a function body.
+Technically, Lua defines the list of parameters as the function body as well.
+In this documentation, the function body is only the code block.
+See documentation for the `do` keyword for more details about code blocks.
 
-Named functions should be defined with the `const` or `local` keyword in front of them so they can be inlined by the compiler.
+When calling a function, it allows specifying the arguments to pass into the function.
+The order of arguments passed into the function corresponds to the order of parameters in the function body.
+Parameters are `local` variables and follow the same rules as them, so the variable identifier naming rules and their scope is bound to the function body.
+
+Optionally, functions can return zero or more values using the `return` keyword.
+See documentation for the `return` keyword for more details.
+
+Pseudocode to define a function:
+
+```txt
+function(PARAMETER_1, PARAMETER_2, ..., PARAMETER_N)
+    block
+end
+```
+
+This definition does not have an identifier.
+This is also known as an unnamed function or an anonymous function.
+
+There is also a syntax sugar function definition:
+
+```txt
+function IDENTIFIER(PARAMETER_1, PARAMETER_2, ..., PARAMETER_N)
+    block
+end
+```
+
+...which is the equivalent to this definition. Not to be confused with the syntax sugar for `local function`:
+
+```txt
+IDENTIFIER = function(PARAMETER_1, PARAMETER_2, ..., PARAMETER_N)
+    block
+end
+```
+
+However, it is not strictly equivalent in Luau because calling `debug.info(foo, "n")` returns `"foo"` (the function name) in the first example and `""` (empty string) in the second example.
+This is because the assigned value is considered an anonymous function. In contrast, in Lua, calling `debug.getinfo(foo)` returns `"foo"` (the function name) in both examples.
+Furthermore, in both Lua and Luau, the bytecode compiler emits a specialized bytecode instruction for the first example, but emits extra bytecode instructions for the second example.
+Though, this difference is negligible.
+
+Optionally, function parameter allows a "vararg expression" using ellipsis (`...`) at the end of the parameter list.
+This makes the function a variadic function.
+All arguments starting from the one corresponding to `...` will be collected into this expression.
+When using this value in an expression, it will only evaluate using the first element.
+The vararg expression can directly return a value at a specific index using `select()`,
+or be converted into a table with `{...}` or using `table.pack(...)`.
+
+Functions are first-class citizens.
+Their reference can be passed into a function using the identifier as arguments,
+returned from a function as a value, assigned to a variable, and used as keys in tables.
+
+In Luau, the type definition for functions in type alias has this syntax in pseudocode:
+
+```txt
+(PARAM_1: PARAM_TYPE_1, PARAM_2: PARAM_TYPE_2, ..., PARAM_N: PARAM_TYPE_N) -> (RETURN_TYPE_1, RETURN_TYPE_2, ..., RETURN_TYPE_N)
+```
+
+In this case, parameter names are optional.
+Parentheses for the return type are optional when there is only 1 return type.
+
+When type annotating the function, it has this pseudocode:
+
+```txt
+function IDENTIFIER(PARAM_1: PARAM_TYPE_1, PARAM_2: PARAM_TYPE_2, ..., PARAM_N: PARAM_TYPE_N): (RETURN_TYPE_1, RETURN_TYPE_2, ..., RETURN_TYPE_N)
+    block
+end
+```
+
+Parameter types are necessary when the function should expect a specific type for the arguments.
+Parentheses for the return type are optional when there is only 1 return type.
+
+Example of declaring a function and calling the function:
 
 ```luau
--- Named function 'add'
-const function add(x, y)
+function add(x, y)
     return x + y
 end
-const added = add(1, 2)
--- the above code is syntax sugar for the unnamed function:
-const add = function(x, y)
-    return x + y
-end
-const added = add(1, 2)
 
-local function read(path: string): string?
-    local success, contents = pcall(fs.readfile(path))
-    if success and contents then
-        return contents
-    end
-    return nil
-end
+result = add(1, 2)
+print(result) -- 3
+```
 
-const f = function(name: string | number)
-    if type(name) == "string" then
-        print(`hi {name}`)
-    elseif type(name) == "number" then
-        print(`hi {names[name]})`
-    end
+Functions can be prefixed with a `local` or `const` keyword.
+See documentation on the `local` keyword for more details.
+
+```luau
+local function foo(x, y)
+    print(x, y)
 end
-const res = dothing(f)
 ```
 
 Functions can be used as expressions:
@@ -588,16 +654,61 @@ const cats = {
 }
 ```
 
-There is a special syntax for adding functions to tables:
+Functions can be added into a table using the `.` operator, similar to assigning a key to a value.
+In this case, `local`, `const`, and `export` cannot be used before `function`.
 
 ```luau
 local module = {}
 function module.functionName()
     -- do something
 end
+module.functionName() -- call from the table
 ```
 
-Functions can be hoisted to be called above their actual definitions.
+```luau
+local table = {
+    key = {}
+}
+
+function table.key.func(parameter)
+    print(parameter)
+end
+
+table.key.func("argument")
+```
+
+Additionally, if the `:` operator is used before the function identifier, the first parameter is implicitly defined as `self`.
+In this case, the function is also referred to as a method.
+
+```luau
+local table = {
+    key = {}
+}
+
+function table.key:func(parameter)
+    print(self)
+    print(parameter)
+end
+
+-- The function definition above is syntax sugar for below.
+
+function table.key.func(self, parameter)
+    print(self)
+    print(parameter)
+end
+
+
+
+table.key:func("argument")
+
+-- The function call above is syntax sugar for below.
+-- However, Luau optimized the syntax sugar.
+-- Also, the original function definition doesn't have to be a method for this syntax to work.
+
+table.key.func(table.key, "argument")
+```
+
+Functions can be called before their definition if their identifier is defined.
 
 ```luau
 local extra_work: (string) -> { string }
@@ -615,10 +726,16 @@ const lines = "hi\nI use Luwu and Luau together\nIn the same codebase."
 print(do_something(lines))
 ```
 
-Calling a function can throw an error (also called an exception). To catch errors, use the builtin `pcall` or `xpcall` functions.
+Functions can throw an error.
+Lua errors are similar to exceptions in other programming languages.
+To catch errors, use the builtin `pcall` or `xpcall` functions.
 <!-- /keyword -->
 
 <!-- keyword: in -->
+`in` is a reserved keyword.
+
+It is a delimiter for generic `for` loops.
+See documentation for the `for` keyword for more details.
 <!-- /keyword -->
 
 <!-- keyword: local -->
@@ -626,6 +743,12 @@ Calling a function can throw an error (also called an exception). To catch error
 
 It declares a variable to have a mutable binding.
 In other words, reassigning the variable to associate with another value is allowed.
+
+Variable identifiers must only include ASCII alphanumerical characters and `_`, and must not start with a number.
+They must not have the same identifier as reserved keywords. They can have the same identifier as other keywords.
+
+When a `local` variable is read or written to from a function, it is called an upvalue.
+In this case, technically, the function is also referred to as a closure.
 
 The `local` keyword is an antonym to "global" variables.
 In Lua, global variables are declared as `IDENTIFIER = VALUE` when the variable isn't assigned,
@@ -666,8 +789,12 @@ a = "meow"
 print(a) -- "meow"
 ```
 
+Technically, there is a limit to the amount of `local` variables (including function arguments) and upvalues.
+In Lua, the former is 60 per function, while the latter is 200 per function.
+In Luau, both limits are 200 per function.
+
 In Luau, if a `local` variable is never reassigned (shadowing is not reassignment),
-the bytecode compiler performs constant folding optimization to avoid allocating a register for the `local` variable.
+the bytecode compiler performs constant folding optimization to avoid hitting the limit for `local` variables and upvalues.
 If the value is a table, it must be clear that the keys must are never reassigned so that this optimization happens - this case only happens for trivial situations.
 
 `local` can be applied to `function` to define a `local function`.
@@ -701,11 +828,73 @@ Recursive function calls can't be inlined. Functions cannot be marked by the use
 <!-- /keyword -->
 
 <!-- keyword: nil -->
-A falsy value that represents nonexistence. When set as the value of a table, erases that key from the table, possibly creating a hole in the table if the table is an array.
+`nil` is a falsy value.
+It is a reserved keyword.
 
-For an alternative that can be stored in tables, see `none`.
+It is one of the few falsy values.
+In Lua, the other falsy value is `false`.
+In Luwu, `none` is also a falsy value.
 
-In the type system, `nil` can be represented by name or by the postfix operator `?`.
+For a variable (including function parameters), unassigned variables default to `nil`.
+When reading a variable that isn't assigned, `nil` is returned as the default value.
+
+```luau
+-- Assume `foo` is unassigned.
+print(foo) -- nil
+```
+
+```luau
+local function foo(bar)
+    print(bar) -- nil
+end
+
+foo()
+```
+
+For a table, `nil` cannot be the table's key.
+When initializing the table, any key assigned to `nil` is omitted.
+When assigning an index or a key to `nil`, the index or key is removed from the table, if any.
+When reading an index or a key that isn't assigned, `nil` is returned.
+For an alternative that can be stored in tables, see documentation for the `none` keyword.
+
+```luau
+local t = {
+    foo = nil,
+    bar = true
+}
+print(t) -- {bar = true}
+print(t.foo) -- nil
+
+t.apple = nil
+print(t) -- {bar = true}
+
+t.bar = nil
+print(t) -- {}
+```
+
+For a function, if the function returns no values, it does not return anything, not even `nil`.
+However, if the function returns 1 value that is `nil`, it does return `nil`.
+At runtime, there are no differences between these cases.
+
+For a module, if the module returns no values, it cannot be required and throws an error at runtime.
+If the module returns `nil`, it can be required. This satisfies the requirement for a module.
+
+For the Luau type system, `nil` can be represented as `nil` or by the postfix operator `?`.
+For both the function and module cases above, it treats the former case as `()` (no value, this type is only annotated in functions) and the latter case as `nil`.
+These are different from each other because they are incompatible with each other.
+
+For the length operator (`#`), this might not be reliable to get the expected array length when the table has `nil` in the array part.
+
+For implementing the iterator protocol for the `__iter` metamethod, when the "index" is `nil`, the iteration stops.
+See documentation for the `for` keyword for the generalized iteration algorithm and the `__iter` metamethod.
+
+In other usages, especially built-in functions and the C API, `nil` may represents the nonexistence of a value or a representable value,
+or a value to trigger one of the previous cases.
+For example, `tonumber("abc")` does not have any results that can represent `"abc"` as a number, so it returns `nil`.
+
+```luau
+print(tonumber("abc")) -- nil
+```
 <!-- /keyword -->
 
 <!-- keyword: not -->
@@ -796,7 +985,49 @@ if true then false else 30 -- false
 <!-- /keyword -->
 
 <!-- keyword: repeat -->
-Repeats a block `until` a condition has been reached. Local variables in the scope of the `repeat` block are visible in the `until` block.
+Creates a `repeat` loop.
+It is a reserved keyword.
+
+The loop body executes first and then the loop evaluates the condition to start the iteration.
+If the condition evaluates to a falsy value, the code block will execute again, and then this loop repeats.
+In other words, the loop body executes, and then evaluates the condition, and this loop *repeats* this cycle *until* the condition is truthy.
+
+In Lua and Luau, `false` and `nil` are considered falsy.
+In Luwu, it added `none` and it's also considered falsy.
+All other values are considered truthy.
+
+A `repeat` loop structure has a loop body, `until` keyword, and the condition.
+The loop body is a code block. See documentation for the `do` keyword for more details about code blocks.
+The condition is checked for falsy *after* the code block executes and then checked again until it is truthy.
+This condition is also within the scope of the loop body.
+
+In pseudocode:
+
+```txt
+repeat
+    block
+until condition
+```
+
+Example of good usage:
+
+```luau
+local attempt = 0
+
+repeat
+    local status, message = RequestPacket()
+    attempt += 1
+until status == true or attempt == 3
+```
+
+Example of bad usage:
+
+```luau
+-- This will iterate forever (don't do this without a `break` keyword)
+repeat
+    print("evil laughter!")
+until false
+```
 <!-- /keyword -->
 
 <!-- keyword: return -->
@@ -849,12 +1080,14 @@ assert(name ~= nil and age ~= nil)
 
 <!-- keyword: then -->
 `then` is a reserved keyword.
+
 It's a delimiter to separate the condition in an `if` or `elseif` clause from the body.
 See documentation for the `if` keyword for more details.
 <!-- /keyword -->
 
 <!-- keyword: true -->
-The truthy `boolean` value. It is a reserved keyword.
+The truthy `boolean` value.
+It is a reserved keyword.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
 In Luwu, it added `none` and it's also considered falsy.
@@ -894,8 +1127,10 @@ The `until` expression may refer to locals from the `repeat` block.
 <!-- /keyword -->
 
 <!-- keyword: while -->
-Creates a `while` loop. It is a reserved keyword.
-If the condition evaluates to a truthy value, the code block executes, and then it checks the condition again.
+Creates a `while` loop.
+It is a reserved keyword.
+
+If the condition evaluates to a truthy value, the loop body executes, and then it checks the condition again.
 In other words, this loop keeps iterating *while* its condition evaluates to a truthy value.
 
 In Lua and Luau, `false` and `nil` are considered falsy.
@@ -903,7 +1138,7 @@ In Luwu, it added `none` and it's also considered falsy.
 All other values are considered truthy.
 
 A `while` loop structure has a condition and a loop body.
-The condition is checked for truthy before the code block executes and then checked again until it is falsy.
+The condition is checked for truthy *before* the code block executes and then checked again until it is falsy.
 The loop body is a code block. See documentation for the `do` keyword for more details about code blocks.
 
 In pseudocode:
@@ -1134,7 +1369,64 @@ print(key.private_key) -- runtime error
 <!-- /keyword -->
 
 <!-- keyword: export -->
-Exposes a type or value to other modules (other files) to be `require`-d.
+`export` is a contextual keyword.
+It is possible to declare a variable using `export` as the identifier, which loses its functionality.
+
+It can expose values, classes, or type aliases from a module into the file that called `require()` on the module.
+
+<!-- NOTE: Export-by-value is still experimental. This is commented out.
+For values and classes, `export` implicitly adds the identifier (as the key) and value (as the value) into the module's returned table.
+These keys are `const` variables.
+
+```luau
+-- module.luau --
+export local LOCAL_VALUE = 100
+export const CONST_VALUE = 200
+
+-- foo.luau --
+local module = require("path/to/foo.luau")
+print(module.LOCAL_VALUE) -- 100
+print(module.CONST_VALUE) -- 200
+
+-- These are not allowed.
+module.LOCAL_VALUE = 50
+module.CONST_VALUE = 50
+```
+
+This is syntax sugar to the equivalent in the `module.luau`:
+
+```luau
+local LOCAL_VALUE = 100
+const CONST_VALUE = 200
+
+-- `_EXP` is a pseudo-name.
+local _EXP = {}
+_EXP.LOCAL_VALUE = LOCAL_VALUE
+_EXP.CONST_VALUE = CONST_VALUE
+return table.freeze(_EXP)
+```
+
+Because of this, it also disallows the module to have return 1 value at the end of the file.
+That is, `return` is no longer required for the file to be a module.
+-->
+
+For type aliases, `export` allows the file that called `require()` on the module to use the type from the module.
+The type aliases can be used before the `require()` call.
+
+```luau
+-- module.luau --
+type HashedPassword = buffer
+export type User = {
+    Username: string,
+    UserId: number,
+    Password: HashedPassword,
+}
+
+-- foo.luau
+type User = module.User
+
+local module = require("path/to/foo.luau")
+```
 <!-- /keyword -->
 
 <!-- keyword: type -->
@@ -1399,7 +1691,8 @@ If `__init()` is a `private` function, the class requires a `public` function to
 <!-- /keyword -->
 
 <!-- keyword: export_class -->
-Make a class available to other modules.
+Exposes the class from a module into the file that called `require()` on the module.
+See documentation for the `export` keyword for more details.
 
 ```luau
 -- list.luau
@@ -1412,6 +1705,7 @@ export class List<T>
     public function with_capacity(cap: number)
     end
 end
+
 -- useslist.luau
 -- due to current lack of an equivalent import keyword, you need to do this
 const list = require("./list")
@@ -1420,11 +1714,11 @@ type List<T> = list.List
 
 const listy = List("Taz", "Nanuk", "Nyla")
 ```
-
 <!-- /keyword -->
 
 <!-- keyword: export_type -->
-Create and export a type alias, usually for a table or function type:
+Exposes the type alias from a module into the file that called `require()` on the module.
+See documentation for the `export` keyword for more details.
 
 ```luau
 -- cats.luau
@@ -1433,14 +1727,17 @@ export type Cat = {
     name: string,
     age: number
 }
+
 const cat: Cat = { -- throws type error if missing any fields
     what = "Cat",
     name = "Taz",
     age = 12,
 }
+
 -- other.luau
 const cats = require("./cats")
 type Cat = cats.Cat
+
 const cat2: Cat = {
     what = "Cat",
     name = "Nanuk",
@@ -1455,7 +1752,14 @@ See documentation for the `local` keyword for more details about `local function
 <!-- /keyword -->
 
 <!-- keyword: class_const -->
-Marks a `const` field of a class. A `const` field may only be mutated during construction (during `__init`) and cannot be reassigned afterwards.
+In a class, `const` is a modifier keyword for a class field.
+
+During class construction in the `__init` constructor function, `const` fields must be assigned a value.
+These fields can only be reassigned within the constructor.
+In other cases, this is not allowed.
+
+If a `const` field is unassigned, throws a type error.
+At runtime, this is a runtime error.
 
 ```luau
 local last_id = 1
