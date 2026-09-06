@@ -268,7 +268,7 @@
           "name": "entity.name.type.luau"
         }
       },
-      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({])",
+      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({])(?!\\s*\\b(?:private|public)\\b\\s*\\()",
       "name": "meta.class.luau",
       "patterns": [
         {
@@ -276,6 +276,10 @@
         },
         {
           "include": "#generics-declaration"
+        },
+        {
+          "match": "\\b(private|public)\\b(?=\\s*\\()",
+          "name": "storage.modifier.access.luau"
         },
         {
           "begin": "(\\()",
@@ -296,6 +300,22 @@
               "include": "#comment"
             },
             {
+              "comment": "Default value of a primary constructor parameter (`class Name(a = expr)`).",
+              "begin": "(=)(?!=)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.operator.assignment.luau"
+                }
+              },
+              "end": "(?=[,)])",
+              "name": "meta.parameter.default.luau",
+              "patterns": [
+                {
+                  "include": "source.luau"
+                }
+              ]
+            },
+            {
               "match": "[a-zA-Z_][a-zA-Z0-9_]*",
               "name": "variable.parameter.function.luau"
             },
@@ -310,7 +330,7 @@
                   "name": "keyword.operator.type.luau"
                 }
               },
-              "end": "(?=[\\),])",
+              "end": "(?=[\\),])|(?=\\s*=(?!=))",
               "patterns": [
                 {
                   "include": "#type_literal"
