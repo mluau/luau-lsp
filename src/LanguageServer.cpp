@@ -51,7 +51,14 @@ WorkspaceFolderPtr LanguageServer::findWorkspace(const lsp::DocumentUri& file, b
 
     WorkspaceFolderPtr bestWorkspace = nullptr;
     size_t length = 0;
-    auto checkStr = file.toString();
+
+    // Documents that haven't been saved to disk yet (e.g. opened via `code ./newfile.luau`, or an
+    // in-memory "Save As" target) are reported with an `untitled:` scheme rather than `file:`, even
+    // though their path already points at the intended on-disk location. Match those against a
+    // workspace by path alone (ignoring scheme) so they don't spuriously fall through to the null
+    // workspace, which is only safe to lazily-initialize with default configuration.
+    bool matchByPathOnly = file.scheme != "file";
+    auto checkStr = matchByPathOnly ? file.path : file.toString();
 
     for (auto& workspace : workspaceFolders)
     {
@@ -59,7 +66,7 @@ WorkspaceFolderPtr LanguageServer::findWorkspace(const lsp::DocumentUri& file, b
             return workspace;
 
         // Check if the root uri is a prefix of the file
-        auto prefixStr = workspace->rootUri.toString();
+        auto prefixStr = matchByPathOnly ? workspace->rootUri.path : workspace->rootUri.toString();
         auto size = prefixStr.size();
         if (size < length)
             continue;
