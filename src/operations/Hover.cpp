@@ -1,5 +1,7 @@
 #include "LSP/Workspace.hpp"
 
+#include <algorithm>
+
 #include "Luau/AstQuery.h"
 #include "Luau/Module.h"
 #include "Luau/ToString.h"
@@ -190,36 +192,54 @@ static std::string extractArgList(const std::string& namedFunctionString)
     return "";
 }
 
-// Builds a short summary of a class's public API, formatted like a (possibly truncated) class
-// body. For the class value itself, this is the constructor (folded into the header, since
-// constructing an instance means literally calling the class), any static (self-less) public
-// functions, and -- below those, as a separate section -- the public fields and instance methods
-// available on objects of the class; for an object (instance), it's just the public fields and
-// instance methods, e.g.
+// Builds a short summary of a class, formatted like a (possibly truncated) class body: the
+// constructor folded into the header line (since constructing an instance means literally calling
+// the class), then every field, then every function. Fields always precede functions -- a class's
+// shape reads better before its behavior -- and each section is truncated independently.
 //
-// class Cat(name: string)      |  class Cat
-//     public function zero(): Cat  |      public name: string
-//                        |      public function meow(self): string
-//     public name: string     |      -- ⋯ 2 more members
-//     public function meow(self): string |  end
-//     -- ⋯ 2 more members     |
-// end                   |
+// The two callers see different things. The class value's summary is the whole class, private
+// members included, plus both static (self-less) functions and the instance methods available on
+// objects of it, statics first: it's what you hover while writing the class, from inside the
+// lexical scope its privates are reachable in. An object's summary drops the statics (not callable
+// on an instance) and the private members (not reachable by whoever is holding the object). E.g.
+//
+// class Vector2(x: number, y: number)  |  object of Vector2
+//     public x: number                 |  class Vector2
+//     public y: number                 |      public x: number
+//     private scratch: number          |      public y: number
+//     public function zero(): Vector2   |      public function add(self, o: Vector2)
+//     public function add(self, o)     |      -- ⋯ 2 more members
+//     -- ⋯ 2 more members              |  end
+// end                                  |
 //
 // The object case always opens with `class Name ... end` (valid Luau syntax, for highlighting);
 // the caller is responsible for prefixing the "object of X" prose label outside the code block.
 //
-// Only supports classes defined in `module` itself (the module currently being hovered over).
+// Works across modules: the summary is built from the AST of whichever module declared the class,
+// not the one being hovered in.
 static std::optional<std::string> buildClassFieldSummary(
     Luau::Frontend& frontend, const Luau::ModulePtr& module, const Luau::ModuleName& moduleName, Luau::TypeId typeId, const Luau::ExternType* et,
     const Luau::ScopePtr& scope, bool showTableKinds, bool isClassValue
 )
 {
-    if (et->definitionModuleName != moduleName)
+    // Everything this summary is built from -- visibility, `const`, the primary constructor, the
+    // declaration order of members -- lives in the AST of whichever module declared the class, not
+    // in the one being hovered in. A class reached across a require (`require("./list").List`) is
+    // the ordinary case rather than an edge case, so resolve the declaring module instead of giving
+    // up whenever it isn't the current one.
+    const Luau::ModuleName& definitionModuleName = et->definitionModuleName;
+    if (definitionModuleName.empty())
         return std::nullopt;
 
-    auto sourceModule = frontend.getSourceModule(moduleName);
+    auto sourceModule = frontend.getSourceModule(definitionModuleName);
     if (!sourceModule)
         return std::nullopt;
+
+    // Needed only to resolve an annotation the ExternType's own props don't already carry a type
+    // for. Those lookups are keyed by AST node, so they have to be made against the declaring
+    // module's own checked results -- and that module's type graph may not have been retained, in
+    // which case the affected lines fall back to `any` rather than the summary disappearing.
+    Luau::ModulePtr definitionModule = definitionModuleName == moduleName ? module : frontend.moduleResolver.getModule(definitionModuleName);
 
     FindClassStatByName finder(et->name);
     sourceModule->root->visit(&finder);
@@ -227,22 +247,71 @@ static std::optional<std::string> buildClassFieldSummary(
         return std::nullopt;
 
     static constexpr size_t kMaxMembers = 5;
-    std::vector<std::string> memberLines;
-    size_t totalPublicMembers = 0;
-    // Track public members of objects of this class as well in addition to static members
-    std::vector<std::string> instanceMemberLines;
-    size_t totalInstanceMembers = 0;
+    // Fields and functions are collected separately so the summary can always print every field
+    // before any function, regardless of the order they appear in the source. A class's fields are
+    // its shape and its functions are its behavior; a reader scanning a hover wants the former
+    // first, and interleaving the two (or, worse, floating the static functions above the fields)
+    // makes the summary read as an unordered pile of whatever the class happened to declare first.
+    std::vector<std::string> fieldLines;
+    size_t totalFields = 0;
+    // Function lines paired with whether they're static (self-less). Collected together, then
+    // ordered statics-first at emission: statics are called on the class value itself, which is
+    // what the header line above describes, so they belong nearer to it.
+    std::vector<std::pair<std::string, bool>> functionEntries;
+    size_t totalFunctions = 0;
+
+    auto pushField = [&](std::string line)
+    {
+        totalFields++;
+        if (fieldLines.size() < kMaxMembers)
+            fieldLines.push_back(std::move(line));
+    };
 
     // Use the type's own toString (rather than the bare `et->name`) so that generic parameters
     // display correctly, e.g. "class Box<number>".
     std::string displayName = Luau::toString(Luau::follow(typeId));
+
+    // ...except the class *value* of a generic class has no generics instantiated to print -- it's
+    // the factory, not an instance -- so toString gives a bare `List`, leaving the `{T}` in the
+    // header's constructor signature and in the field lines below with nothing to refer back to.
+    // Fall back to the parameter names as written on the declaration, so it reads `class List<T>`.
+    if (displayName.find('<') == std::string::npos)
+    {
+        std::string genericParams;
+        for (const auto* generic : finder.result->generics)
+        {
+            if (!genericParams.empty())
+                genericParams += ", ";
+            genericParams += generic->name.value;
+        }
+        for (const auto* genericPack : finder.result->genericPacks)
+        {
+            if (!genericParams.empty())
+                genericParams += ", ";
+            genericParams += std::string(genericPack->name.value) + "...";
+        }
+        if (!genericParams.empty())
+            displayName += "<" + genericParams + ">";
+    }
     // The object case's "object of X" label is prose, not valid Luau syntax, so the caller
     // prepends it outside the code block; the code block itself always opens with valid
     // `class Name<Generics> ... end` syntax so it can be syntax-highlighted properly.
     std::string header = "class " + displayName;
     bool hasConstructorLine = false;
 
-    bool hasCustomInit = false;
+    // Whether the class is constructed by calling it with positional arguments -- which is the
+    // case both for a custom `function __init` and for a primary constructor (`class Cat(name:
+    // string)`), the latter being just a terser spelling of the former. When neither is present,
+    // the class instead gets the auto-generated POD table constructor, called as `Name{ ... }`,
+    // which is displayed quite differently below.
+    bool hasPositionalConstructor = finder.result->primaryConstructor != nullptr;
+    // A private constructor -- `class Account private (...)`, or a `private function __init` --
+    // means the class cannot be constructed by calling it from outside its own lexical scope, so
+    // the header has to say so: otherwise the signature reads as an invitation to call something
+    // that would fail at runtime, and the public factory function that exists precisely because the
+    // constructor is private looks redundant.
+    bool constructorIsPrivate =
+        finder.result->primaryConstructor && finder.result->primaryConstructor->visibility == Luau::AstClassMemberVisibility::Private;
     // If nothing in the class is private, the "public " prefix on every member line is just noise
     // -- omit it and let the reader assume public, matching how `private` alone would otherwise
     // stand out on a member line if there were any.
@@ -250,12 +319,38 @@ static std::optional<std::string> buildClassFieldSummary(
     for (const auto& member : finder.result->members)
     {
         if (const auto* method = member.get_if<Luau::AstClassMethod>(); method && method->functionName == "__init")
-            hasCustomInit = true;
+        {
+            hasPositionalConstructor = true;
+            if (method->visibility == Luau::AstClassMemberVisibility::Private)
+                constructorIsPrivate = true;
+        }
 
         if (Luau::visit([](auto&& m) -> bool { return m.visibility == Luau::AstClassMemberVisibility::Private; }, member))
             anyPrivateMember = true;
     }
+
+    // A primary constructor parameter implicitly declares a field of the same name, so a `private`
+    // written on one makes the class have private members just as much as a `private` in the body
+    // does -- without this, a class whose only private members come from its parameter list would
+    // drop the "public " prefix from every member line and read as if it had none.
+    if (const auto* ctor = finder.result->primaryConstructor)
+        for (const auto& qualifiers : ctor->argsQualifiers)
+            if (qualifiers.visibility == Luau::AstClassMemberVisibility::Private)
+                anyPrivateMember = true;
     std::string publicPrefix = anyPrivateMember ? "public " : "";
+    auto visibilityPrefix = [&publicPrefix](bool isPrivate)
+    {
+        return isPrivate ? std::string("private ") : publicPrefix;
+    };
+    // Private members are shown on the class value's own summary and hidden on an object's. The
+    // class value is what you hover while writing the class, from inside the lexical scope its
+    // privates are reachable in -- hiding half the class there just makes the summary lie about
+    // its shape. An object is held by whoever received it, typically from outside that scope,
+    // where a private member is not something they can read, write, or call.
+    auto showsPrivate = [isClassValue](bool isPrivate)
+    {
+        return isClassValue || !isPrivate;
+    };
 
     // Instance fields (e.g. `const inner = ...` with no annotation) only live in the *object*
     // type's props -- the class value's own `et` only has static members and the constructor. So
@@ -280,12 +375,14 @@ static std::optional<std::string> buildClassFieldSummary(
             {
                 if (auto ctorFtv = Luau::get<Luau::FunctionType>(Luau::follow(*it->second.readTy)))
                 {
-                    if (hasCustomInit)
+                    if (hasPositionalConstructor)
                     {
                         types::ToStringNamedFunctionOpts funcOpts;
                         funcOpts.hideTableKind = !showTableKinds;
                         funcOpts.hideFirstParameter = true;
                         std::string ctorString = types::toStringNamedFunction(module, ctorFtv, std::string(""), scope, funcOpts);
+                        if (constructorIsPrivate)
+                            header += " private ";
                         header += extractArgList(ctorString);
                         hasConstructorLine = true;
                     }
@@ -382,14 +479,59 @@ static std::optional<std::string> buildClassFieldSummary(
     }
     header += "\n";
 
+    // Fields declared by the primary constructor's parameters. These are real fields of the object
+    // but they aren't AstClassMembers, so the members loop below never sees them -- without this, an
+    // object of a class whose fields all come from its parameter list would summarize as empty. A
+    // parameter restated in the class body *is* a member, so it's left to that loop to avoid
+    // listing it twice (the body's restatement is the more informative of the two anyway: it can
+    // carry an annotation and a derived default value the parameter doesn't have).
+    if (const auto* ctor = finder.result->primaryConstructor)
+    {
+        for (size_t i = 0; i < ctor->args.size; i++)
+        {
+            const Luau::AstLocal* arg = ctor->args.data[i];
+            const bool isPrivate =
+                i < ctor->argsQualifiers.size && ctor->argsQualifiers.data[i].visibility == Luau::AstClassMemberVisibility::Private;
+            if (!showsPrivate(isPrivate))
+                continue;
+
+            bool restatedInBody = false;
+            for (const auto& member : finder.result->members)
+                if (const auto* prop = member.get_if<Luau::AstClassProperty>(); prop && prop->name == arg->name)
+                    restatedInBody = true;
+            if (restatedInBody)
+                continue;
+
+            bool isConst = i < ctor->argsQualifiers.size && ctor->argsQualifiers.data[i].isConst;
+            std::string line = "    " + visibilityPrefix(isPrivate) + (isConst ? "const " : "") + std::string(arg->name.value) + ": ";
+
+            // Same order of preference as a class body field below: the instantiated type first so
+            // generics print concretely, then the parameter's own annotation, then `any`. A field
+            // whose type can't be resolved is still a field -- dropping the line entirely would
+            // silently understate the class's shape, which is worse than printing `any`.
+            if (auto it = objectEt->props.find(arg->name.value); it != objectEt->props.end() && it->second.readTy)
+                line += Luau::toString(Luau::follow(*it->second.readTy));
+            else if (arg->annotation)
+            {
+                const Luau::TypeId* resolvedTy = definitionModule ? definitionModule->astResolvedTypes.find(arg->annotation) : nullptr;
+                line += resolvedTy ? Luau::toString(Luau::follow(*resolvedTy)) : "any";
+            }
+            else
+                line += "any";
+
+            pushField(line);
+        }
+    }
+
     for (const auto& member : finder.result->members)
     {
         if (const auto* prop = member.get_if<Luau::AstClassProperty>())
         {
-            if (prop->visibility == Luau::AstClassMemberVisibility::Private)
+            const bool isPrivate = prop->visibility == Luau::AstClassMemberVisibility::Private;
+            if (!showsPrivate(isPrivate))
                 continue;
 
-            std::string line = "    " + publicPrefix + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
+            std::string line = "    " + visibilityPrefix(isPrivate) + (prop->isConst ? "const " : "") + std::string(prop->name.value) + ": ";
             // Prefer the instantiated type from `et->props` over the AST-resolved type of the
             // annotation, so that generic classes (e.g. `class Box<T> ... end`) show `string`
             // rather than `T` when hovering over a `Box<string>`. See formatMethodLine for the
@@ -398,29 +540,18 @@ static std::optional<std::string> buildClassFieldSummary(
                 line += Luau::toString(Luau::follow(*it->second.readTy));
             else if (prop->ty)
             {
-                if (auto resolvedTy = module->astResolvedTypes.find(prop->ty))
-                    line += Luau::toString(Luau::follow(*resolvedTy));
-                else
-                    line += "any";
+                const Luau::TypeId* resolvedTy = definitionModule ? definitionModule->astResolvedTypes.find(prop->ty) : nullptr;
+                line += resolvedTy ? Luau::toString(Luau::follow(*resolvedTy)) : "any";
             }
             else
                 line += "any";
 
-            if (isClassValue)
-            {
-                if (!hasCustomInit)
-                    continue;
+            // A class with the auto-generated POD constructor already lists every field in the
+            // header's `Name{ ... }` block, so repeating them below it is pure noise.
+            if (isClassValue && !hasPositionalConstructor)
+                continue;
 
-                totalInstanceMembers++;
-                if (instanceMemberLines.size() < kMaxMembers)
-                    instanceMemberLines.push_back(line);
-            }
-            else
-            {
-                totalPublicMembers++;
-                if (memberLines.size() < kMaxMembers)
-                    memberLines.push_back(line);
-            }
+            pushField(line);
             continue;
         }
 
@@ -428,7 +559,8 @@ static std::optional<std::string> buildClassFieldSummary(
         if (!method)
             continue;
 
-        if (method->visibility == Luau::AstClassMemberVisibility::Private)
+        const bool isPrivate = method->visibility == Luau::AstClassMemberVisibility::Private;
+        if (!showsPrivate(isPrivate))
             continue;
 
         // Skip dunder methods (e.g. `__init`, `__tostring`) -- they're not really part of the
@@ -449,47 +581,47 @@ static std::optional<std::string> buildClassFieldSummary(
         std::string line = formatMethodLine(module, isStatic ? et : objectEt, method, scope, showTableKinds);
         if (line.empty())
             continue;
-        line = "    " + publicPrefix + line;
+        line = "    " + visibilityPrefix(isPrivate) + line;
 
-        // The class value's summary shows static functions in the primary section (alongside the
-        // constructor) and instance methods (methods callable on objects of the class) in a
-        // separate section below; the object's summary only ever has instance methods, so they go
-        // in the primary section.
-        if (isClassValue && !isStatic)
-        {
-            totalInstanceMembers++;
-            if (instanceMemberLines.size() < kMaxMembers)
-                instanceMemberLines.push_back(line);
-        }
-        else
-        {
-            totalPublicMembers++;
-            if (memberLines.size() < kMaxMembers)
-                memberLines.push_back(line);
-        }
+        totalFunctions++;
+        functionEntries.emplace_back(std::move(line), isStatic);
     }
 
-    if (memberLines.empty() && !hasConstructorLine && instanceMemberLines.empty())
+    // Statics first, instance methods after, each group still in source order.
+    std::stable_partition(
+        functionEntries.begin(),
+        functionEntries.end(),
+        [](const std::pair<std::string, bool>& entry)
+        {
+            return entry.second;
+        }
+    );
+    if (functionEntries.size() > kMaxMembers)
+        functionEntries.resize(kMaxMembers);
+
+    if (fieldLines.empty() && functionEntries.empty() && !hasConstructorLine)
         return std::nullopt;
 
-    std::string summary = header;
-    for (const auto& line : memberLines)
-        summary += line + "\n";
-    if (totalPublicMembers > memberLines.size())
-        summary += "    -- ⋯ " + std::to_string(totalPublicMembers - memberLines.size()) + " more member" +
-                   (totalPublicMembers - memberLines.size() == 1 ? "" : "s") + "\n";
-
-    if (isClassValue && !instanceMemberLines.empty())
+    auto elidedLine = [](size_t elided)
     {
-        // No separator between the static-function section and the instance-method section --
-        // instance methods all take a leading `self` parameter, which already makes the split
-        // obvious without a blank line or comment header.
-        for (const auto& line : instanceMemberLines)
-            summary += line + "\n";
-        if (totalInstanceMembers > instanceMemberLines.size())
-            summary += "    -- ⋯ " + std::to_string(totalInstanceMembers - instanceMemberLines.size()) + " more member" +
-                       (totalInstanceMembers - instanceMemberLines.size() == 1 ? "" : "s") + "\n";
-    }
+        return "    -- ⋯ " + std::to_string(elided) + " more member" + (elided == 1 ? "" : "s") + "\n";
+    };
+
+    // No separator between the field section and the function section, nor between the static and
+    // instance functions within it -- a function line reads as a function on sight, and instance
+    // methods all take a leading `self` parameter, so both splits are already obvious without a
+    // blank line or a comment header spending a row to say so.
+    std::string summary = header;
+    for (const auto& line : fieldLines)
+        summary += line + "\n";
+    if (totalFields > fieldLines.size())
+        summary += elidedLine(totalFields - fieldLines.size());
+
+    for (const auto& [line, isStatic] : functionEntries)
+        summary += line + "\n";
+    if (totalFunctions > functionEntries.size())
+        summary += elidedLine(totalFunctions - functionEntries.size());
+
     summary += "end";
 
     return summary;
@@ -620,6 +752,69 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
         {
             if (auto classValueTy = scope->lookup(classStat->name->name))
                 type = *classValueTy;
+        }
+
+        // Hovering over a primary constructor parameter's name (e.g. `class Particle private (public
+        // |position: Vector2)`). Each parameter implicitly declares a field of the same name, so
+        // this shows the same `public position: Vector2` shape a field written in the class body
+        // would -- but parameters are AstLocals, not AstClassMembers, so the members loop below
+        // never sees them and nothing was shown at all here.
+        if (const auto* ctor = classStat->primaryConstructor; ctor && !type)
+        {
+            for (size_t i = 0; i < ctor->args.size; i++)
+            {
+                const Luau::AstLocal* arg = ctor->args.data[i];
+                if (!arg->location.containsClosed(position))
+                    continue;
+
+                const Luau::AstClassPrimaryConstructorParamQualifiers* qualifiers =
+                    i < ctor->argsQualifiers.size ? &ctor->argsQualifiers.data[i] : nullptr;
+
+                // A parameter that carries no qualifier of its own is only public *by default* --
+                // the RFC's other spelling is to leave the parameter list bare and qualify the
+                // field where it's restated in the class body (`class List<T> private (inner: {T})`
+                // with a `private inner` inside). That restatement is the field's actual
+                // declaration, so prefer it; reporting the parameter's default here would state the
+                // opposite of what the class says two lines below.
+                const Luau::AstClassProperty* restatement = nullptr;
+                for (const auto& member : classStat->members)
+                    if (const auto* prop = member.get_if<Luau::AstClassProperty>(); prop && prop->name == arg->name)
+                        restatement = prop;
+
+                bool isPrivate = qualifiers && qualifiers->visibility == Luau::AstClassMemberVisibility::Private;
+                bool isConst = qualifiers && qualifiers->isConst;
+                if (restatement)
+                {
+                    if (!qualifiers || !qualifiers->qualifierLocation)
+                        isPrivate = restatement->visibility == Luau::AstClassMemberVisibility::Private;
+                    if (!qualifiers || !qualifiers->constLocation)
+                        isConst = restatement->isConst;
+                }
+
+                classMemberPrefix = isPrivate ? "private " : "public ";
+                if (isConst)
+                    classMemberPrefix = *classMemberPrefix + "const ";
+
+                classMemberName = arg->name.value;
+
+                if (arg->annotation)
+                {
+                    if (auto ty = module->astResolvedTypes.find(arg->annotation))
+                        type = *ty;
+                }
+                else if (auto classTypeFun = scope->lookupType(classStat->name->name.value))
+                {
+                    // Unannotated parameter (`class Vector4(x, y, z, w)`) -- its field's type was
+                    // inferred, so read it back off the class's own instance type, same as an
+                    // unannotated field written in the class body.
+                    if (auto propInfo = lookupProp(classTypeFun->type, arg->name.value); !propInfo.empty())
+                        if (propInfo[0].property.readTy)
+                            type = propInfo[0].property.readTy;
+                }
+
+                documentationLocation = {moduleName, arg->location};
+                break;
+            }
         }
 
         for (const auto& member : classStat->members)

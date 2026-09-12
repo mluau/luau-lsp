@@ -35,8 +35,10 @@ struct KeywordHoverMatch
 /// `ancestry` is the root-to-innermost node chain at `position` (from `findAstAncestryOfPosition`).
 /// Most keywords (e.g. `if`, `while`, `return`) are anchored directly on an AstStat/AstExpr node via
 /// a dedicated keyword-location field, so checking `ancestry.back()` (the innermost node) is enough.
-/// Class member qualifiers (`public`/`private`/`const`) and a method's leading `function` keyword
-/// are the exception: `AstClassProperty`/`AstClassMethod` are plain structs, not AstNode subtypes,
-/// so the narrowest-enclosing-node search never lands on them directly -- instead we walk up
-/// `ancestry` to the nearest `AstStatClass` and check its members' keyword locations explicitly.
+/// Class member qualifiers (`public`/`private`/`const`), a method's leading `function` keyword, and
+/// a primary constructor's qualifiers (both the one on the constructor itself and the ones on its
+/// parameters) are the exception: `AstClassProperty`/`AstClassMethod`/`AstClassPrimaryConstructor`
+/// are plain structs, not AstNode subtypes, so the narrowest-enclosing-node search never lands on
+/// them directly -- instead we walk up `ancestry` to the nearest `AstStatClass` and check its
+/// members' and primary constructor's keyword locations explicitly.
 std::optional<KeywordHoverMatch> findKeywordDocKeyAtPosition(const std::vector<Luau::AstNode*>& ancestry, Luau::Position position);

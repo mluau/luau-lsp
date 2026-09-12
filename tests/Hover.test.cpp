@@ -891,4 +891,532 @@ TEST_CASE_FIXTURE(Fixture, "hovering_over_class_name_shows_class_value_summary_w
     CHECK(result->contents.value.find("object of") == std::string::npos);
 }
 
+TEST_CASE_FIXTURE(Fixture, "hovering_over_private_before_primary_constructor_shows_private_constructor_docs")
+{
+    // The `private` between a class's name and its primary constructor's parameter list qualifies
+    // the constructor, not the class or a field, so it must not fall back to the plain `private`
+    // docs -- those describe something else entirely at this position.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Particle pri|vate (
+            public position: Vector2,
+            public velocity: Vector2,
+            private mass: number
+        )
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, getKeywordHoverDocs("primary_constructor_private"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_public_before_primary_constructor_shows_public_constructor_docs")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Seal pub|lic (name: string)
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, getKeywordHoverDocs("primary_constructor_public"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_public_primary_constructor_parameter_shows_param_docs")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Particle private (
+            pub|lic position: Vector2,
+            public velocity: Vector2,
+            private mass: number
+        )
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, getKeywordHoverDocs("primary_constructor_param_public"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_private_primary_constructor_parameter_shows_param_docs")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Particle private (
+            public position: Vector2,
+            public velocity: Vector2,
+            priv|ate mass: number
+        )
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, getKeywordHoverDocs("primary_constructor_param_private"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_const_primary_constructor_parameter_shows_param_const_docs")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class SshKey private (
+            public co|nst public_key: string,
+            private const private_key: string
+        )
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, getKeywordHoverDocs("primary_constructor_param_const"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_class_name_with_primary_constructor_shows_positional_constructor")
+{
+    // A primary constructor is a terser spelling of `function __init`, so the summary should show
+    // the same positional argument list -- not the `Name{ field = value }` table-literal shape a
+    // class with no constructor at all gets.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class |Particle(position: number, velocity: number)
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("class Particle(position: number, velocity: number)") != std::string::npos);
+    CHECK(result->contents.value.find("{") == std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_object_of_class_with_primary_constructor_lists_parameter_fields")
+{
+    // The fields of this class are declared entirely by its primary constructor's parameters --
+    // they're not AstClassMembers at all, so the summary has to pick them up from the constructor.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Particle private (
+            public position: number,
+            public velocity: number,
+            private mass: number
+        )
+            public function spawn(): Particle
+                return Particle(0, 0, 1)
+            end
+        end
+
+        const |particle = Particle.spawn()
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("public position: number") != std::string::npos);
+    CHECK(result->contents.value.find("public velocity: number") != std::string::npos);
+    // `mass` is private, so it has no business showing up in a summary of the public API surface.
+    CHECK(result->contents.value.find("mass") == std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_primary_constructor_parameter_name_shows_the_field_it_declares")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Particle private (
+            public position: number,
+            public vel|ocity: number,
+            private mass: number
+        )
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, codeBlock("luau", "public velocity: number"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_private_const_primary_constructor_parameter_name_shows_qualifiers")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class SshKey private (
+            public const public_key: string,
+            private const priv|ate_key: string
+        )
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, codeBlock("luau", "private const private_key: string"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "hovering_over_unannotated_primary_constructor_parameter_name_shows_inferred_type")
+{
+    // No annotation on the parameter, so the field's type has to be read back off the class's own
+    // instance type rather than off an AstType node that doesn't exist.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Point(x, |y)
+        end
+
+        const point = Point(1, 2)
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("public y") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "class_summary_lists_all_fields_before_any_function")
+{
+    // Source order puts a static function first and interleaves a method between the fields; the
+    // summary should still read fields-then-functions, with the static function ahead of the
+    // instance methods.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class |Vector2
+            function zero(): Vector2
+                return Vector2 { x = 0, y = 0 }
+            end
+
+            x: number
+
+            function add(self, other: Vector2): Vector2
+                return Vector2 { x = self.x + other.x, y = self.y + other.y }
+            end
+
+            y: number
+
+            function __init(self, x: number, y: number)
+                self.x = x
+                self.y = y
+            end
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+
+    auto x = result->contents.value.find("x: number");
+    auto y = result->contents.value.find("y: number");
+    auto zero = result->contents.value.find("function zero");
+    auto add = result->contents.value.find("function add");
+    REQUIRE(x != std::string::npos);
+    REQUIRE(y != std::string::npos);
+    REQUIRE(zero != std::string::npos);
+    REQUIRE(add != std::string::npos);
+
+    CHECK(x < y);
+    CHECK(y < zero);
+    CHECK(zero < add);
+}
+
+TEST_CASE_FIXTURE(Fixture, "class_value_summary_shows_private_members_but_object_summary_hides_them")
+{
+    // The class value is hovered from inside the scope its privates are reachable in, so hiding
+    // them there makes the summary lie about the class's shape; an object is typically held from
+    // outside that scope, where they aren't reachable at all.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, classMarker] = sourceWithMarker(R"(
+        class |Particle private (
+            public position: number,
+            private mass: number
+        )
+            public function spawn(): Particle
+                return Particle(0, 1)
+            end
+
+            private function decay(self): number
+                return self.mass
+            end
+        end
+
+        const particle = Particle.spawn()
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = classMarker;
+
+    auto classResult = workspace.hover(params, nullptr);
+    REQUIRE(classResult);
+    CHECK(classResult->contents.value.find("public position: number") != std::string::npos);
+    CHECK(classResult->contents.value.find("private mass: number") != std::string::npos);
+    CHECK(classResult->contents.value.find("private function decay") != std::string::npos);
+
+    auto [objectSource, objectMarker] = sourceWithMarker(R"(
+        class Particle private (
+            public position: number,
+            private mass: number
+        )
+            public function spawn(): Particle
+                return Particle(0, 1)
+            end
+
+            private function decay(self): number
+                return self.mass
+            end
+        end
+
+        const |particle = Particle.spawn()
+    )");
+
+    auto objectUri = newDocument("bar.luau", objectSource);
+    params.textDocument = lsp::TextDocumentIdentifier{objectUri};
+    params.position = objectMarker;
+
+    auto objectResult = workspace.hover(params, nullptr);
+    REQUIRE(objectResult);
+    CHECK(objectResult->contents.value.find("public position: number") != std::string::npos);
+    CHECK(objectResult->contents.value.find("mass") == std::string::npos);
+    CHECK(objectResult->contents.value.find("decay") == std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "class_summary_marks_a_private_primary_constructor_in_the_header")
+{
+    // Without the `private`, the header reads as an invitation to call `ParticleSystem(...)` --
+    // which would fail at runtime -- and makes the `new` factory below it look redundant.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class |ParticleSystem private (gravity: number, particles: number)
+            private particles
+            private gravity
+
+            public function new(gravity: number): ParticleSystem
+                return ParticleSystem(gravity, 0)
+            end
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("class ParticleSystem private (") != std::string::npos);
+    // Restated in the class body as private, so they're fields of the class and must be listed
+    // as such -- the header's parameter list is the constructor's signature, not the class's shape.
+    CHECK(result->contents.value.find("private particles") != std::string::npos);
+    CHECK(result->contents.value.find("private gravity") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "generic_class_value_summary_shows_its_generic_parameters")
+{
+    // The class value is the factory, not an instance, so it has nothing instantiated to print and
+    // used to render as a bare `class List` -- leaving the `{T}` in its own constructor signature
+    // and field lines referring to a parameter the header never introduced.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class |List<T> private (inner: { T })
+            private inner
+
+            public function new(): List<T>
+                return List({})
+            end
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("class List<T> private (") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "primary_constructor_parameter_hover_uses_visibility_restated_in_the_class_body")
+{
+    // The parameter list is bare here, so the parameter's own qualifiers say "public" by default --
+    // but the class body restates the field as private, and that restatement is the declaration.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class List<T> private (in|ner: { T })
+            private inner
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, codeBlock("luau", "private inner: {T}"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "primary_constructor_parameter_hover_prefers_its_own_qualifier_over_the_body")
+{
+    // The other direction: an explicit qualifier on the parameter is the declaration, and a
+    // restatement in the body may only agree with it (the parser rejects a contradiction).
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Frame private (
+            private const na|me: string,
+            private size: number
+        )
+            private name
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK_EQ(result->contents.value, codeBlock("luau", "private const name: string"));
+}
+
+TEST_CASE_FIXTURE(Fixture, "class_summary_works_for_a_class_required_from_another_module")
+{
+    // The summary is built from the class's AST, which lives in the module that declared it -- this
+    // used to bail out whenever that wasn't the module being hovered in, so a class reached through
+    // a require (the ordinary way to use one) fell back to printing just its name.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    newDocument("list.luau", R"(
+        export class List private (inner: { number })
+            private inner
+
+            public function new(): List
+                return List({})
+            end
+
+            public function len(self): number
+                return #self.inner
+            end
+        end
+
+        return { List = List }
+    )");
+
+    auto [source, marker] = sourceWithMarker(R"(
+        local |List = require("./list").List
+    )");
+    auto uri = newDocument("main.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("class List private (") != std::string::npos);
+    CHECK(result->contents.value.find("private inner") != std::string::npos);
+    CHECK(result->contents.value.find("function new") != std::string::npos);
+    CHECK(result->contents.value.find("function len") != std::string::npos);
+}
+
 TEST_SUITE_END();

@@ -109,8 +109,7 @@ end
 <!-- keyword: function -->
 Defines a `function`. A function may be called to evaluate a code block and `return` a result.
 
-In Luwu, functions are first-class and can be passed around, passed to functions, used as a key in a hash table, and more.
-
+Functions are first-class and can be passed around, passed to functions, used as a key in a hash table, and more.
 In the type system, functions are represented with `(paramname: Type) -> (ReturnType1, ReturnType2)` syntax.
 
 Named functions should be defined with the `const` or `local` keyword in front of them so they can be inlined by the compiler.
@@ -331,19 +330,39 @@ const cat = Cat { name = "Taz", age = 12 }
 
 To import your class in another module (another file), `export` it with `export class`.
 
-To customize the behavior of the class's constructor, give it an `__init` constructor function.
+A class can have a *primary constructor* with a *field parameter list*.
+This allows passing fields positionally instead of through the table constructor.
 
 ```luau
-export class Person
-    first_name: string
-    last_name: string
+export class Name(first: string, last: string, middle: string?)
+    function middle_initial(self): string?
+        if self.middle then
+            return string.sub(self.middle(1, 1))
+        end
+        return nil
+    end
+    function to_email_address(domain = "gmail.com"): string
+        const first = string.lower(string.sub(self.first, 1, 3))
+        const last = string.lower(self.last)
 
-    function __init(self, first, last)
-        self.first_name = first
-        self.last_name = last
+        return `{last}-{first}@{domain}`
+    end
+    function parse(s: string): Name | Error
+        -- ...
     end
 end
-const attorney = Person("Mike", "Ross")
+export class User private (
+    public name: Name,
+    private date_of_birth: DateTime,
+    private ssn: string
+)
+    public const userid = make_user_id()
+    public email = name:to_email_address()
+
+    public function new(name: string | Name): User?
+        -- ...
+    end
+end
 ```
 
 Use `class.isinstance` to check if an `object` is an instance of a class.
@@ -373,11 +392,8 @@ end
 More complicated classes can have the `public`, `private`, `const` keywords, generic parameters, and default values.
 
 ```luau
-export class Set<T>
+export class Set<T> private () -- hide default constructor
     private const inner: { [T]: true? } = {}
-    private function __init(self)
-        -- pass, force public construction with .new
-    end
     public function new<T>(): Set<T>
         return Set() :: Set<T>
     end
@@ -420,7 +436,7 @@ end
 <!-- /keyword -->
 
 <!-- keyword: public -->
-Marks a class field (property) or function (normal function or method) as accessible from outside the lexical scope of that class. This keyword can be omitted if every member of the class is `public`.
+An access specifier that marks a class field (property) or function (normal function or method) as accessible from outside the lexical scope of that class. This keyword can be omitted if every member of the class is `public`.
 
 ```luau
 class Cat
@@ -442,8 +458,9 @@ end
 <!-- /keyword -->
 
 <!-- keyword: private -->
-Forbid a class field, function, or method from being accessible outside the lexical scope of the class.
-Attempting to access a `private` member from outside the class will result in a runtime error.
+An access speciier that forbids a class field, function, or method from being accessible outside the lexical scope of the class.
+
+Attempting to access a `private` member from outside its class raises a runtime error.
 
 ```luau
 class RsaKeys
@@ -549,11 +566,11 @@ const cat2: Cat = {
 <!-- /keyword -->
 
 <!-- keyword: const_function -->
-A `local function` that cannot be mutated. This is probably the most common type of `local function` for newer code. Like `local function`s, these may be inlined by the compiler if their function bodies are small enough.
+A `local function` binding that cannot be mutated. Like `local function`s, these may be inlined by the compiler if their function bodies are small enough.
 <!-- /keyword -->
 
 <!-- keyword: class_const -->
-Marks a `const` field of a class. A `const` field may only be mutated during construction (during `__init`) and cannot be reassigned afterwards.
+A modifier that marks a `const` field of a class. A `const` field may only be mutated during construction (during `__init`) and cannot be reassigned afterwards.
 
 ```luau
 local last_id = 1
@@ -568,10 +585,106 @@ class Id
     end
 end
 self.inner = 2 -- runtime error
+```
+<!-- /keyword -->
+
+<!-- keyword: primary_constructor_private -->
+In this position, the `private` keyword marks the class's **primary constructor** (class field parameter constructor) as private.
+
+To instantiate this class from outside its scope, you need to call a `public` function (often called a factory function) that returns an object of this class.
+
+```luau
+class PositiveNumber private (
+    const inner: number -- this field is public by default even though constructor is private
+)
+    function new(n: number): PositiveNumber?
+        if n >= 0 then
+            return PositiveNumber(n) -- fine, we're inside the class
+        end
+        return nil
+    end
+end
+
+const positive = PositiveNumber.new(42)
+const bad = PositiveNumber(-1) -- runtime error: the primary constructor is private
+```
+
+Marking only the primary constructor `private` does *not* force you to give an explicit access specifier to every other field and function of the class; those stay implicitly `public`.
+<!-- /keyword -->
+
+<!-- keyword: primary_constructor_public -->
+In this position, `public` explicitly marks the class's primary constructor as `public`.
+
+Since this is already the default, you'll typically see it here for emphasis/clarity when a class has private members.
+
+```luau
+class Seal public (name: string)
+    private id = next_id()
+    public blubber = 100
+end
+```
+<!-- /keyword -->
+
+<!-- keyword: primary_constructor_param_public -->
+An access specifier that marks this field introduced by the class's primary constructor (field parameter list) as `public`. This keyword may be omitted when the class has 0 `private` members.
+
+```luau
+class Particle private (
+    public position: Vector2,
+    public velocity: Vector2,
+    private mass: number
+)
+    public function spawn(position: Vector2): Particle
+        return Particle(position, Vector2.zero, 1)
+    end
+end
+
+const p = Particle.spawn(Vector2.zero)
+print(p.position) -- all good
+print(p.mass) -- runtime error, mass is private
+```
+
+A `const` modifier goes after the access specifier: `public const position: Vector2`.
+<!-- /keyword -->
+
+<!-- keyword: primary_constructor_param_private -->
+An access specifier that marks this field introduced by the class's primary constructor (field parameter list) as `private`. Attempting to access a private field outside the lexical scope of its class raises a runtime error.
+
+```luau
+class SshKey private (
+    public const public_key: string,
+    private const private_key: string
+)
+    public function keygen(): SshKey
+        const keys = crypt.ssh.keygen()
+        return SshKey(keys.public, keys.private)
+    end
+end
+```
+
+If *any* parameter carries an access specifier, every other parameter and every class member must carry one too.
+<!-- /keyword -->
+
+<!-- keyword: primary_constructor_param_const -->
+Marks this field introduced by the class's primary constructor (field parameter list) as `const`. A `const` field may only be set during object construction; attempting to reassign it later raises a runtime error.
+
+The `const` modifier goes after the access specifier (`public` or `private`) when an access specifier is present.
+
+```luau
+class Circle(
+    public const radius: number,
+    private const id = next_id()
+)
+    public function grow(self, by: number): Circle
+        -- self.radius += by would be a runtime error, so build a new one
+        return Circle(self.radius + by)
+    end
+end
+```
 <!-- /keyword -->
 
 <!-- !stop parsing -->
-<!-- The keywords below only ever appear in embedder declaration/definition files, where hover and diagnostics don't currently run -- low priority, but kept for completeness. -->
+<!-- The keywords below only ever appear in embedder declaration/definition files which aren't supported yet in hovers -->
 
 <!-- keyword: declare -->
 <!-- /keyword -->

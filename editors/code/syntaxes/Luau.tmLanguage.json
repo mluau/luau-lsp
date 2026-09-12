@@ -268,7 +268,7 @@
           "name": "entity.name.type.luau"
         }
       },
-      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({])",
+      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({]|\\s+(?:public|private)\\s*\\()",
       "name": "meta.class.luau",
       "patterns": [
         {
@@ -276,6 +276,11 @@
         },
         {
           "include": "#generics-declaration"
+        },
+        {
+          "comment": "Luwu Classes: the access specifier on a class's primary constructor -- `class Account private (holder: User)` -- which qualifies the constructor rather than the class. Only a qualifier when a parameter list follows it.",
+          "match": "\\b(public|private)\\b(?=\\s*\\()",
+          "name": "storage.modifier.access.luau"
         },
         {
           "begin": "(\\()",
@@ -296,6 +301,22 @@
               "include": "#comment"
             },
             {
+              "comment": "Luwu Classes: a primary constructor parameter may carry the access specifier and `const` modifier of the field it implicitly declares, Kotlin-style -- `class SshKey private (public const public_key: string)`. These are only qualifiers when another name follows, so a parameter may still be named `public`, `private` or `const`.",
+              "match": "\\b(?:(public|private)\\s+)?(const)\\b(?=\\s+[a-zA-Z_])",
+              "captures": {
+                "1": {
+                  "name": "storage.modifier.access.luau"
+                },
+                "2": {
+                  "name": "storage.modifier.const.luau"
+                }
+              }
+            },
+            {
+              "match": "\\b(public|private)\\b(?=\\s+[a-zA-Z_])",
+              "name": "storage.modifier.access.luau"
+            },
+            {
               "match": "[a-zA-Z_][a-zA-Z0-9_]*",
               "name": "variable.parameter.function.luau"
             },
@@ -310,10 +331,25 @@
                   "name": "keyword.operator.type.luau"
                 }
               },
-              "end": "(?=[\\),])",
+              "end": "(?=[=\\),])",
               "patterns": [
                 {
                   "include": "#type_literal"
+                }
+              ]
+            },
+            {
+              "comment": "Luwu Classes: a primary constructor parameter may have a default value, following the same rules as a function parameter's. Nested parens and braces are consumed by the included rules, so a call or table default doesn't end the parameter early.",
+              "begin": "(=)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.operator.assignment.luau"
+                }
+              },
+              "end": "(?=[,)])",
+              "patterns": [
+                {
+                  "include": "$self"
                 }
               ]
             }

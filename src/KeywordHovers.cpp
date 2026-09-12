@@ -72,6 +72,36 @@ std::optional<KeywordHoverMatch> findKeywordDocKeyAtPosition(const std::vector<L
     {
         if (auto classStat = (*it)->as<Luau::AstStatClass>())
         {
+            if (const auto* ctor = classStat->primaryConstructor)
+            {
+                // An access specifier written between the class's name and its primary
+                // constructor's parameter list -- `class Particle private (...)` -- qualifies the
+                // *constructor*, not the class and not any one field, so it gets its own doc
+                // rather than reusing the plain `public`/`private` one, which would describe the
+                // wrong thing entirely at this position.
+                if (ctor->qualifierLocation && contains(*ctor->qualifierLocation))
+                    return match(
+                        ctor->visibility == Luau::AstClassMemberVisibility::Private ? "primary_constructor_private"
+                                                                                    : "primary_constructor_public",
+                        *ctor->qualifierLocation
+                    );
+
+                // Each parameter implicitly declares a field of the same name, so a specifier or
+                // `const` written on a parameter describes that implicit field -- again close to,
+                // but not the same as, what those keywords mean on a class body member.
+                for (const auto& qualifiers : ctor->argsQualifiers)
+                {
+                    if (qualifiers.qualifierLocation && contains(*qualifiers.qualifierLocation))
+                        return match(
+                            qualifiers.visibility == Luau::AstClassMemberVisibility::Private ? "primary_constructor_param_private"
+                                                                                             : "primary_constructor_param_public",
+                            *qualifiers.qualifierLocation
+                        );
+                    if (qualifiers.constLocation && contains(*qualifiers.constLocation))
+                        return match("primary_constructor_param_const", *qualifiers.constLocation);
+                }
+            }
+
             for (const auto& member : classStat->members)
             {
                 if (auto prop = member.get_if<Luau::AstClassProperty>())
