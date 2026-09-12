@@ -268,7 +268,7 @@
           "name": "entity.name.type.luau"
         }
       },
-      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({]|\\s+(?:public|private)\\s*\\()",
+      "end": "(?<=[a-zA-Z0-9_>)}])(?!\\s*[<({])(?!\\s*\\b(?:private|public)\\b\\s*\\()",
       "name": "meta.class.luau",
       "patterns": [
         {
@@ -317,6 +317,22 @@
               "name": "storage.modifier.access.luau"
             },
             {
+              "comment": "Default value of a primary constructor parameter (`class Name(a = expr)`).",
+              "begin": "(=)(?!=)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.operator.assignment.luau"
+                }
+              },
+              "end": "(?=[,)])",
+              "name": "meta.parameter.default.luau",
+              "patterns": [
+                {
+                  "include": "source.luau"
+                }
+              ]
+            },
+            {
               "match": "[a-zA-Z_][a-zA-Z0-9_]*",
               "name": "variable.parameter.function.luau"
             },
@@ -331,25 +347,10 @@
                   "name": "keyword.operator.type.luau"
                 }
               },
-              "end": "(?=[=\\),])",
+              "end": "(?=[\\),])|(?=\\s*=(?!=))",
               "patterns": [
                 {
                   "include": "#type_literal"
-                }
-              ]
-            },
-            {
-              "comment": "Luwu Classes: a primary constructor parameter may have a default value, following the same rules as a function parameter's. Nested parens and braces are consumed by the included rules, so a call or table default doesn't end the parameter early.",
-              "begin": "(=)",
-              "beginCaptures": {
-                "1": {
-                  "name": "keyword.operator.assignment.luau"
-                }
-              },
-              "end": "(?=[,)])",
-              "patterns": [
-                {
-                  "include": "$self"
                 }
               ]
             }
