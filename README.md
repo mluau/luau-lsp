@@ -136,9 +136,9 @@ To compile the project, execute the following commands in the project root direc
 git submodule update --init --recursive
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --target Luau.LanguageServer.CLI --config Release
+cmake --build . --target Luwu.LanguageServer.CLI --config Release
 ```
 
-You can build `Luau.LanguageServer.Test` for unit tests.
+You can build `Luwu.LanguageServer.Test` for unit tests.
 Some tests make assumptions about relative file paths.
 When running tests, ensure that your current working directory is set to the root of the repository.

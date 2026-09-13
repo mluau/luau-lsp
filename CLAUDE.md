@@ -21,18 +21,18 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug  # Use Debug for faster builds during developm
 
 # Build the CLI (use -j for parallel builds)
 NUM_CPUS=$(nproc)
-cmake --build . --target Luau.LanguageServer.CLI --config Debug -j$NUM_CPUS
+cmake --build . --target Luwu.LanguageServer.CLI --config Debug -j$NUM_CPUS
 
 # Build tests (use Debug for faster iteration)
-cmake --build . --target Luau.LanguageServer.Test --config Debug -j$NUM_CPUS
+cmake --build . --target Luwu.LanguageServer.Test --config Debug -j$NUM_CPUS
 
 # For release/production builds, use Release mode:
 # cmake .. -DCMAKE_BUILD_TYPE=Release
-# cmake --build . --target Luau.LanguageServer.CLI --config Release -j$NUM_CPUS
+# cmake --build . --target Luwu.LanguageServer.CLI --config Release -j$NUM_CPUS
 
 # Build with ASAN (Linux/macOS)
 cmake .. -DLSP_BUILD_ASAN:BOOL=ON
-cmake --build . --target Luau.LanguageServer.Test -j$NUM_CPUS
+cmake --build . --target Luwu.LanguageServer.Test -j$NUM_CPUS
 ```
 
 ## Running Tests
@@ -41,19 +41,19 @@ Tests use the doctest framework. **Important:** Run tests from the repository ro
 
 ```bash
 # Run all tests (from repo root)
-./build/Luau.LanguageServer.Test
+./build/Luwu.LanguageServer.Test
 
 # Run with new type solver
-./build/Luau.LanguageServer.Test --new-solver
+./build/Luwu.LanguageServer.Test --new-solver
 
 # Run with all FFlags enabled
-./build/Luau.LanguageServer.Test --fflags=true
+./build/Luwu.LanguageServer.Test --fflags=true
 
 # Run specific test by name
-./build/Luau.LanguageServer.Test --test-case="TestName"
+./build/Luwu.LanguageServer.Test --test-case="TestName"
 
 # List all tests
-./build/Luau.LanguageServer.Test --list-test-cases
+./build/Luwu.LanguageServer.Test --list-test-cases
 ```
 
 ## Architecture
@@ -90,9 +90,9 @@ Located in `src/operations/`:
 
 ### External Dependencies
 
-Located in `extern/` and `luau/`:
+Located in `extern/` and `luwu/`:
 
-- `luau/`: Luau compiler and type checker (submodule)
+- `luwu/`: Luau compiler and type checker (submodule)
 - `extern/json/`: nlohmann/json for JSON handling
 - `extern/glob/`: Glob pattern matching
 - `extern/argparse/`: CLI argument parsing
@@ -148,9 +148,9 @@ TEST_CASE_FIXTURE(Fixture, "feature_requiring_new_solver")
 
 ## Key CMake Targets
 
-- `Luau.LanguageServer`: Static library containing LSP implementation
-- `Luau.LanguageServer.CLI`: Executable (`luau-lsp`)
-- `Luau.LanguageServer.Test`: Test executable
+- `Luwu.LanguageServer`: Static library containing LSP implementation
+- `Luwu.LanguageServer.CLI`: Executable (`luwu-lsp`)
+- `Luwu.LanguageServer.Test`: Test executable
 
 ## CMake Options
 

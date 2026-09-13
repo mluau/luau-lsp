@@ -67,21 +67,23 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact-name: luau-lsp-win64
+            artifact-name: luwu-lsp-win64
             code-target: [win32-x64, win32-arm64]
-            crash-reporting: true
+            # crash-reporting disabled: luwu-lsp has no Sentry org/project configured yet
+            crash-reporting: false
           - os: ubuntu-22.04
-            artifact-name: luau-lsp-linux-x86_64
+            artifact-name: luwu-lsp-linux-x86_64
             code-target: [linux-x64]
             crash-reporting: false
           - os: ubuntu-22.04-arm
-            artifact-name: luau-lsp-linux-arm64
+            artifact-name: luwu-lsp-linux-arm64
             code-target: [linux-arm64]
             crash-reporting: false
           - os: macos-latest
-            artifact-name: luau-lsp-macos
+            artifact-name: luwu-lsp-macos
             code-target: [darwin-x64, darwin-arm64]
-            crash-reporting: true
+            # crash-reporting disabled: luwu-lsp has no Sentry org/project configured yet
+            crash-reporting: false
 
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -100,19 +102,19 @@ jobs:
         run: |
           mkdir build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON -DLSP_STATIC_CRT:BOOL=ON -DLSP_BUILD_WITH_SENTRY:BOOL=${{ matrix.crash-reporting }}
-          cmake --build . --config RelWithDebInfo --target Luau.LanguageServer.CLI -j 3
+          cmake --build . --config RelWithDebInfo --target Luwu.LanguageServer.CLI -j 3
 
       - name: (MacOS) Verify universal build
         if: matrix.os == 'macos-latest'
-        run: lipo -archs build/luau-lsp
+        run: lipo -archs build/luwu-lsp
 
       - name: (MacOS) Separate debug symbols
         if: matrix.os == 'macos-latest'
-        run: dsymutil build/luau-lsp && strip -S build/luau-lsp
+        run: dsymutil build/luwu-lsp && strip -S build/luwu-lsp
 
       - name: (Linux) Separate debug symbols
         if: matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm'
-        run: objcopy --only-keep-debug build/luau-lsp build/luau-lsp.dbg && objcopy --strip-debug build/luau-lsp
+        run: objcopy --only-keep-debug build/luwu-lsp build/luwu-lsp.dbg && objcopy --strip-debug build/luwu-lsp
 
       - name: Copy Build into Extension
         shell: bash
@@ -120,9 +122,9 @@ jobs:
           mkdir -p ./dist
           mkdir -p editors/code/bin
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp build/RelWithDebInfo/luau-lsp.exe editors/code/bin/server.exe
+            cp build/RelWithDebInfo/luwu-lsp.exe editors/code/bin/server.exe
           else
-            cp build/luau-lsp editors/code/bin/server
+            cp build/luwu-lsp editors/code/bin/server
             chmod 777 editors/code/bin/server
           fi
 
@@ -157,11 +159,11 @@ jobs:
         run: |
           mkdir staging
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "build/RelWithDebInfo/luau-lsp.exe" staging/
+            cp "build/RelWithDebInfo/luwu-lsp.exe" staging/
             cd staging
             7z a ../dist/server.zip *
           else
-            cp "build/luau-lsp" staging/
+            cp "build/luwu-lsp" staging/
             cd staging
             zip ../dist/server.zip *
           fi
@@ -196,9 +198,15 @@ jobs:
         working-directory: editors/code
 
       - name: Publish Extension
+        # disabled: luwu-lsp doesn't have its own VS Code Marketplace listing yet, and MARKETPLACE_TOKEN
+        # would otherwise publish to (or fail against) JohnnyMorganz's upstream listing
+        if: false
         working-directory: editors/code
         run: npx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --target ${{ join(matrix.code-target, ' ') }}
 
       - name: Publish OpenVSX Extension
+        # disabled: luwu-lsp doesn't have its own OpenVSX listing yet, and OVSX_TOKEN
+        # would otherwise publish to (or fail against) JohnnyMorganz's upstream listing
+        if: false
         working-directory: editors/code
         run: npx ovsx publish --pat ${{ secrets.OVSX_TOKEN }} --target ${{ join(matrix.code-target, ' ') }}

@@ -15,17 +15,19 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact-name: luau-lsp-win64
+            artifact-name: luwu-lsp-win64
             code-target: [win32-x64]
-            crash-reporting: true
+            # crash-reporting disabled: luwu-lsp has no Sentry org/project configured yet
+            crash-reporting: false
           - os: ubuntu-22.04
-            artifact-name: luau-lsp-linux
+            artifact-name: luwu-lsp-linux
             code-target: [linux-x64]
             crash-reporting: false
           - os: macos-latest
-            artifact-name: luau-lsp-macos
+            artifact-name: luwu-lsp-macos
             code-target: [darwin-x64, darwin-arm64]
-            crash-reporting: true
+            # crash-reporting disabled: luwu-lsp has no Sentry org/project configured yet
+            crash-reporting: false
 
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -52,19 +54,19 @@ jobs:
         run: |
           mkdir build && cd build
           cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON -DLSP_STATIC_CRT:BOOL=ON -DLUAU_ENABLE_TIME_TRACE:BOOL=ON -DLSP_BUILD_WITH_SENTRY:BOOL=${{ matrix.crash-reporting }} ..
-          cmake --build . --config RelWithDebInfo --target Luau.LanguageServer.CLI -j 3
+          cmake --build . --config RelWithDebInfo --target Luwu.LanguageServer.CLI -j 3
 
       - name: (MacOS) Verify universal build
         if: matrix.os == 'macos-latest'
-        run: lipo -archs build/luau-lsp
+        run: lipo -archs build/luwu-lsp
 
       - name: (MacOS) Separate debug symbols
         if: matrix.os == 'macos-latest'
-        run: dsymutil build/luau-lsp && strip -S build/luau-lsp
+        run: dsymutil build/luwu-lsp && strip -S build/luwu-lsp
 
       - name: (Linux) Separate debug symbols
         if: matrix.os == 'ubuntu-22.04'
-        run: objcopy --only-keep-debug build/luau-lsp build/luau-lsp.dbg && objcopy --strip-debug build/luau-lsp
+        run: objcopy --only-keep-debug build/luwu-lsp build/luwu-lsp.dbg && objcopy --strip-debug build/luwu-lsp
 
       - name: Copy Build into Extension
         shell: bash
@@ -72,10 +74,10 @@ jobs:
           mkdir -p ./dist
           mkdir -p editors/code/bin
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp build/RelWithDebInfo/luau-lsp.exe editors/code/bin/server.exe
-            cp build/RelWithDebInfo/luau-lsp.pdb editors/code/bin/server.pdb
+            cp build/RelWithDebInfo/luwu-lsp.exe editors/code/bin/server.exe
+            cp build/RelWithDebInfo/luwu-lsp.pdb editors/code/bin/server.pdb
           else
-            cp build/luau-lsp editors/code/bin/server
+            cp build/luwu-lsp editors/code/bin/server
             chmod 777 editors/code/bin/server
           fi
 
@@ -110,11 +112,11 @@ jobs:
         run: |
           mkdir staging
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "build/RelWithDebInfo/luau-lsp.exe" staging/
+            cp "build/RelWithDebInfo/luwu-lsp.exe" staging/
             cd staging
             7z a ../dist/server.zip *
           else
-            cp "build/luau-lsp" staging/
+            cp "build/luwu-lsp" staging/
             cd staging
             zip ../dist/server.zip *
           fi

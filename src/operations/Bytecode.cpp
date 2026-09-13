@@ -1,4 +1,4 @@
-#include "../../luau/CodeGen/include/Luau/CodeGen.h"
+#include "../../luwu/CodeGen/include/Luau/CodeGen.h"
 #include "LSP/Workspace.hpp"
 #include "Luau/BytecodeBuilder.h"
 #include "Luau/Parser.h"

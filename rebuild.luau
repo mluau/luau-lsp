@@ -36,21 +36,21 @@ const parsed = args.parse(
         ):default("test"),
         args.flag("--release", "Compiles the luwu-lsp binary in --config Release mode (defaults to false)"),
         args.flag("--clean", "remove the build dir and reconfigure (do this luwu-lsp doesnt compile and you think partial build is stale)"),
-        args.named("--targets", "Which of the CMake build targets should we build? Defaults to CLI (Luau.LanguageServer.CLI). Specify multiple targets by separating them with commas.")
+        args.named("--targets", "Which of the CMake build targets should we build? Defaults to CLI (Luwu.LanguageServer.CLI). Specify multiple targets by separating them with commas.")
             :default("CLI")
     ),
-    args.command("submodule-update", "update ./luau submodule with whatever path")
+    args.command("submodule-update", "update ./luwu submodule with whatever path")
 )
 
-const luau_lsp_dir = 
+const luwu_lsp_dir =
     -- use instead of cwd in case ppl dont run this in correct dir
     fs.dir.from(script:parent())
 
-const build_dir_path = luau_lsp_dir:join("build")
+const build_dir_path = luwu_lsp_dir:join("build")
 
 --- Version of luwu vendored in as a submodule, should always be included
 --- we build against this version by default when LUWU_TEST_PATH doesn't exist
-const luwu_submodule_path = luau_lsp_dir:join("luau")
+const luwu_submodule_path = luwu_lsp_dir:join("luwu")
 
 --- Version of luwu user is actively developing in another directory
 --- We compile against this one for rapid iteration between luwu Analysis improvements
@@ -129,8 +129,8 @@ const function should_reconfigure(luwu_path: string)
     end
     const content = fs.readfile(cmakecache_path)
     const splits = str.split(content, "LSP_LUAU_PATH:PATH=")
-    const current_luau_path = str.splitfront(splits[2], "\n", 1)[1]
-    if current_luau_path ~= luwu_path then
+    const current_luwu_path = str.splitfront(splits[2], "\n", 1)[1]
+    if current_luwu_path ~= luwu_path then
         return true
     end
     return false
@@ -150,7 +150,7 @@ const function clean_and_configure(luwu_path: string)
     fs.dir.ensure(build_dir_path)
     --[[
         We always want to configure cmake with DCMAKE_BUILD_TYPE=Release otherwise
-        luau itself can throw LUAU_ASSERT for things the luau team said are TODO
+        luwu itself can throw LUAU_ASSERT for things the luau team said are TODO
         and thereby crash the entire lsp instead of silently ignoring the TODO items
     ]]
     const configure_result = process.run {
@@ -212,7 +212,7 @@ const function get_targets(): { string }
     for _, t in targets do
         const lowered = string.lower(t)
         if lowered == "cli" or lowered == "test" then
-            table.insert(normalized, `Luau.LanguageServer.{t}`)
+            table.insert(normalized, `Luwu.LanguageServer.{t}`)
         else
             error(`Unknown target {t}`)
         end
@@ -274,9 +274,9 @@ while children:any_alive() and #some_errors == 0 do
         if content then
             if is_tty then
                 content = str.trimback(content) -- strip \n or \r\n
-                -- strip CMakeFiles/Luau.LanguageServer.dir
-                content = str.replace(content, "CMakeFiles/Luau.LanguageServer.dir", "")
-                content = str.replace(content, "luau/CMakeFiles", "")
+                -- strip CMakeFiles/Luwu.LanguageServer.dir
+                content = str.replace(content, "CMakeFiles/Luwu.LanguageServer.dir", "")
+                content = str.replace(content, "luwu/CMakeFiles", "")
                 -- make sure fits in terminal
                 if str.width(content) > size.x then
                     content = str.slice(content, 1, size.x - 4)

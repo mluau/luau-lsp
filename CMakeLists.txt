@@ -8,7 +8,7 @@ option(LSP_BUILD_WITH_SENTRY "Build with Sentry (crash reporting)" OFF)
 option(LSP_WERROR "Warnings as errors" ON)
 
 set(LSP_VERSION "1.69.0")
-set(LSP_NAME "Luau")
+set(LSP_NAME "Luwu")
 
 if (LSP_STATIC_CRT)
     set(LUAU_STATIC_CRT ON)
@@ -19,7 +19,7 @@ if (LUAU_ENABLE_TIME_TRACE)
     add_compile_definitions(LUAU_ENABLE_TIME_TRACE)
 endif ()
 
-project(Luau.LanguageServer LANGUAGES CXX)
+project(Luwu.LanguageServer LANGUAGES CXX)
 
 # Sentry setup
 if (LSP_BUILD_WITH_SENTRY)
@@ -38,13 +38,13 @@ if (LSP_BUILD_WITH_SENTRY)
     FetchContent_MakeAvailable(sentry)
 endif ()
 
-set(LSP_LUAU_PATH "${CMAKE_CURRENT_SOURCE_DIR}/luau" CACHE PATH "Path to the Luau source tree to build against (defaults to the luau submodule)")
-add_subdirectory(${LSP_LUAU_PATH} luau)
-add_library(Luau.LanguageServer STATIC)
-add_executable(Luau.LanguageServer.CLI)
-add_executable(Luau.LanguageServer.Test)
+set(LSP_LUAU_PATH "${CMAKE_CURRENT_SOURCE_DIR}/luwu" CACHE PATH "Path to the Luau source tree to build against (defaults to the luwu submodule)")
+add_subdirectory(${LSP_LUAU_PATH} luwu)
+add_library(Luwu.LanguageServer STATIC)
+add_executable(Luwu.LanguageServer.CLI)
+add_executable(Luwu.LanguageServer.Test)
 
-target_sources(Luau.LanguageServer PRIVATE
+target_sources(Luwu.LanguageServer PRIVATE
         src/LanguageServer.cpp
         src/JsonRpc.cpp
         src/Uri.cpp
@@ -108,12 +108,12 @@ target_sources(Luau.LanguageServer PRIVATE
         extern/glob/match.cpp
 )
 
-target_sources(Luau.LanguageServer.CLI PRIVATE
+target_sources(Luwu.LanguageServer.CLI PRIVATE
         src/main.cpp
         src/AnalyzeCli.cpp
 )
 
-target_sources(Luau.LanguageServer.Test PRIVATE
+target_sources(Luwu.LanguageServer.Test PRIVATE
         tests/main.cpp
         tests/Fixture.cpp
         tests/TempDir.cpp
@@ -189,7 +189,7 @@ if (LSP_BUILD_ASAN)
     endforeach ()
 
     if (NOT MSVC)
-        foreach (TARGET_NAME IN LISTS LUAU_ASAN_TARGETS ITEMS Luau.LanguageServer Luau.LanguageServer.CLI Luau.LanguageServer.Test)
+        foreach (TARGET_NAME IN LISTS LUAU_ASAN_TARGETS ITEMS Luwu.LanguageServer Luwu.LanguageServer.CLI Luwu.LanguageServer.Test)
             target_link_options(${TARGET_NAME} PRIVATE ${ASAN_FLAG})
         endforeach ()
     endif ()
@@ -197,39 +197,39 @@ endif ()
 
 set(EXTERN_INCLUDES extern/json/include extern/glob/include extern/argparse/include extern/toml/include extern/ryml/include)
 
-target_compile_features(Luau.LanguageServer PUBLIC cxx_std_17)
-target_compile_options(Luau.LanguageServer PRIVATE ${LUAU_LSP_OPTIONS})
-target_compile_definitions(Luau.LanguageServer PUBLIC
+target_compile_features(Luwu.LanguageServer PUBLIC cxx_std_17)
+target_compile_options(Luwu.LanguageServer PRIVATE ${LUAU_LSP_OPTIONS})
+target_compile_definitions(Luwu.LanguageServer PUBLIC
     LSP_VERSION="${LSP_VERSION}"
     LSP_NAME="${LSP_NAME}"
     LSP_KEYWORD_HOVERS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/keyword_hovers.json"
     $<$<BOOL:${LSP_BUILD_WITH_SENTRY}>:LSP_BUILD_WITH_SENTRY>
 )
-target_include_directories(Luau.LanguageServer PUBLIC src/include)
-target_include_directories(Luau.LanguageServer SYSTEM PUBLIC ${EXTERN_INCLUDES})
-target_link_libraries(Luau.LanguageServer PRIVATE Luau.Ast Luau.Analysis Luau.Compiler Luau.CodeGen)
-target_link_libraries(Luau.LanguageServer PUBLIC Luau.VM)
+target_include_directories(Luwu.LanguageServer PUBLIC src/include)
+target_include_directories(Luwu.LanguageServer SYSTEM PUBLIC ${EXTERN_INCLUDES})
+target_link_libraries(Luwu.LanguageServer PRIVATE Luau.Ast Luau.Analysis Luau.Compiler Luau.CodeGen)
+target_link_libraries(Luwu.LanguageServer PUBLIC Luau.VM)
 
-set_target_properties(Luau.LanguageServer.CLI PROPERTIES OUTPUT_NAME luau-lsp)
-target_compile_options(Luau.LanguageServer.CLI PRIVATE ${LUAU_LSP_OPTIONS})
-target_include_directories(Luau.LanguageServer.CLI PRIVATE src/include)
-target_include_directories(Luau.LanguageServer.CLI SYSTEM PRIVATE ${EXTERN_INCLUDES})
-target_link_libraries(Luau.LanguageServer.CLI PRIVATE Luau.LanguageServer Luau.Analysis)
+set_target_properties(Luwu.LanguageServer.CLI PROPERTIES OUTPUT_NAME luwu-lsp)
+target_compile_options(Luwu.LanguageServer.CLI PRIVATE ${LUAU_LSP_OPTIONS})
+target_include_directories(Luwu.LanguageServer.CLI PRIVATE src/include)
+target_include_directories(Luwu.LanguageServer.CLI SYSTEM PRIVATE ${EXTERN_INCLUDES})
+target_link_libraries(Luwu.LanguageServer.CLI PRIVATE Luwu.LanguageServer Luau.Analysis)
 
-target_compile_options(Luau.LanguageServer.Test PRIVATE ${LUAU_LSP_OPTIONS})
-target_include_directories(Luau.LanguageServer.Test PRIVATE tests)
-target_include_directories(Luau.LanguageServer.Test SYSTEM PRIVATE ${EXTERN_INCLUDES} extern/doctest)
-target_link_libraries(Luau.LanguageServer.Test PRIVATE Luau.Ast Luau.Analysis Luau.LanguageServer)
+target_compile_options(Luwu.LanguageServer.Test PRIVATE ${LUAU_LSP_OPTIONS})
+target_include_directories(Luwu.LanguageServer.Test PRIVATE tests)
+target_include_directories(Luwu.LanguageServer.Test SYSTEM PRIVATE ${EXTERN_INCLUDES} extern/doctest)
+target_link_libraries(Luwu.LanguageServer.Test PRIVATE Luau.Ast Luau.Analysis Luwu.LanguageServer)
 
 if (LSP_BUILD_WITH_SENTRY)
-    target_link_libraries(Luau.LanguageServer PRIVATE sentry)
-    target_link_libraries(Luau.LanguageServer.CLI PRIVATE sentry)
+    target_link_libraries(Luwu.LanguageServer PRIVATE sentry)
+    target_link_libraries(Luwu.LanguageServer.CLI PRIVATE sentry)
 
     add_custom_command(
-            TARGET Luau.LanguageServer.CLI POST_BUILD
+            TARGET Luwu.LanguageServer.CLI POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:crashpad_handler>"
-            "$<TARGET_FILE_DIR:Luau.LanguageServer.CLI>"
+            "$<TARGET_FILE_DIR:Luwu.LanguageServer.CLI>"
             COMMENT "Copying crashpad_handler to output directory"
     )
 endif ()

@@ -9,7 +9,7 @@ CHANGELOG_FILE = "CHANGELOG.md"
 
 # Update submodule
 subprocess.run(
-    ["git", "submodule", "update", "--remote", "luau"],
+    ["git", "submodule", "update", "--remote", "luwu"],
     check=True,
     stdout=sys.stderr,
     stderr=sys.stderr,
@@ -22,7 +22,7 @@ if not subprocess.check_output(["git", "status", "--porcelain", "-uno"]):
 
 # Current luau version
 VERSION = subprocess.check_output(
-    ["git", "describe", "--tags", "--abbrev=0"], cwd="luau"
+    ["git", "describe", "--tags", "--abbrev=0"], cwd="luwu"
 ).decode()
 MESSAGE = f"Sync to upstream Luau {VERSION}"
 

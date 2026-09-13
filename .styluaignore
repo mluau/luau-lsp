@@ -1,4 +1,4 @@
-luau/
+luwu/
 tests/testdata/non-ascii/
 *.d.lua
 *.d.luau

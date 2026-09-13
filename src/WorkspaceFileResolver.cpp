@@ -276,7 +276,7 @@ const Luau::Config& WorkspaceFileResolver::readConfigRec(const Uri& uri, const L
                 lsp::Diagnostic diagnostic{{{0, 0}, {0, 0}}};
                 diagnostic.message = *error;
                 diagnostic.severity = lsp::DiagnosticSeverity::Error;
-                diagnostic.source = "Luau";
+                diagnostic.source = "Luwu";
                 client->publishDiagnostics({configPath, std::nullopt, {diagnostic}});
             }
             else
@@ -303,7 +303,7 @@ const Luau::Config& WorkspaceFileResolver::readConfigRec(const Uri& uri, const L
                 lsp::Diagnostic diagnostic{{{0, 0}, {0, 0}}};
                 diagnostic.message = *error;
                 diagnostic.severity = lsp::DiagnosticSeverity::Error;
-                diagnostic.source = "Luau";
+                diagnostic.source = "Luwu";
                 client->publishDiagnostics({configPath, std::nullopt, {diagnostic}});
             }
             else
@@ -331,7 +331,7 @@ const Luau::Config& WorkspaceFileResolver::readConfigRec(const Uri& uri, const L
                 lsp::Diagnostic diagnostic{{{0, 0}, {0, 0}}};
                 diagnostic.message = *error;
                 diagnostic.severity = lsp::DiagnosticSeverity::Error;
-                diagnostic.source = "Luau";
+                diagnostic.source = "Luwu";
                 client->publishDiagnostics({robloxRcPath, std::nullopt, {diagnostic}});
             }
             else

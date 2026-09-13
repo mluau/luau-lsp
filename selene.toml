@@ -1,2 +1,2 @@
 std = "luau+roblox"
-exclude = ["luau/*", "*.d.lua", "*.d.luau"]
+exclude = ["luwu/*", "*.d.lua", "*.d.luau"]

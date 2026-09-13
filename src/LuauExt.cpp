@@ -544,7 +544,7 @@ lsp::Diagnostic createTypeErrorDiagnostic(const Luau::TypeError& error, Luau::Fi
         message = "TypeError: " + Luau::toString(error, Luau::TypeErrorToStringOptions{fileResolver});
 
     lsp::Diagnostic diagnostic;
-    diagnostic.source = "Luau";
+    diagnostic.source = "Luwu";
     diagnostic.code = error.code();
     diagnostic.message = message;
     diagnostic.severity = lsp::DiagnosticSeverity::Error;
@@ -558,7 +558,7 @@ lsp::Diagnostic createLintDiagnostic(const Luau::LintWarning& lint, const TextDo
     std::string lintName = Luau::LintWarning::getName(lint.code);
 
     lsp::Diagnostic diagnostic;
-    diagnostic.source = "Luau";
+    diagnostic.source = "Luwu";
     diagnostic.code = lint.code;
     diagnostic.message = lintName + ": " + lint.text;
     diagnostic.severity = lsp::DiagnosticSeverity::Warning; // Configuration can convert this to an error
@@ -581,7 +581,7 @@ lsp::Diagnostic createLintDiagnostic(const Luau::LintWarning& lint, const TextDo
 lsp::Diagnostic createParseErrorDiagnostic(const Luau::ParseError& error, const TextDocument* textDocument)
 {
     lsp::Diagnostic diagnostic;
-    diagnostic.source = "Luau";
+    diagnostic.source = "Luwu";
     diagnostic.code = "SyntaxError";
     diagnostic.message = "SyntaxError: " + error.getMessage();
     diagnostic.severity = lsp::DiagnosticSeverity::Error;
