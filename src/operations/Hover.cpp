@@ -122,6 +122,12 @@ struct FindClassStatByName : Luau::AstVisitor
     }
 };
 
+// How many fields/functions a class or extern type summary lists (per section) before eliding the
+// rest. A summary of a type the hover merely *refers to* uses the smaller cap, so several of them
+// fit in one hover alongside the hovered type itself.
+static constexpr size_t kMaxSummaryMembers = 5;
+static constexpr size_t kMaxReferencedSummaryMembers = 3;
+
 static bool isDunderName(std::string_view name)
 {
     return name.rfind("__", 0) == 0;
@@ -219,7 +225,7 @@ static std::string extractArgList(const std::string& namedFunctionString)
 // not the one being hovered in.
 static std::optional<std::string> buildClassFieldSummary(
     Luau::Frontend& frontend, const Luau::ModulePtr& module, const Luau::ModuleName& moduleName, Luau::TypeId typeId, const Luau::ExternType* et,
-    const Luau::ScopePtr& scope, bool showTableKinds, bool isClassValue
+    const Luau::ScopePtr& scope, bool showTableKinds, bool isClassValue, size_t maxMembers = kMaxSummaryMembers
 )
 {
     // Everything this summary is built from -- visibility, `const`, the primary constructor, the
@@ -246,7 +252,6 @@ static std::optional<std::string> buildClassFieldSummary(
     if (!finder.result)
         return std::nullopt;
 
-    static constexpr size_t kMaxMembers = 5;
     // Fields and functions are collected separately so the summary can always print every field
     // before any function, regardless of the order they appear in the source. A class's fields are
     // its shape and its functions are its behavior; a reader scanning a hover wants the former
@@ -263,7 +268,7 @@ static std::optional<std::string> buildClassFieldSummary(
     auto pushField = [&](std::string line)
     {
         totalFields++;
-        if (fieldLines.size() < kMaxMembers)
+        if (fieldLines.size() < maxMembers)
             fieldLines.push_back(std::move(line));
     };
 
@@ -596,8 +601,8 @@ static std::optional<std::string> buildClassFieldSummary(
             return entry.second;
         }
     );
-    if (functionEntries.size() > kMaxMembers)
-        functionEntries.resize(kMaxMembers);
+    if (functionEntries.size() > maxMembers)
+        functionEntries.resize(maxMembers);
 
     if (fieldLines.empty() && functionEntries.empty() && !hasConstructorLine)
         return std::nullopt;
@@ -638,29 +643,33 @@ static std::optional<std::string> buildClassFieldSummary(
 // Unlike `class`, `declare extern type` has no public/private visibility syntax, so member lines
 // aren't prefixed with either.
 static std::string buildExternTypeSummary(
-    const Luau::ModulePtr& module, Luau::TypeId typeId, const Luau::ExternType* et, const Luau::ScopePtr& scope, bool showTableKinds
+    const Luau::ModulePtr& module, Luau::TypeId typeId, const Luau::ExternType* et, const Luau::ScopePtr& scope, bool showTableKinds,
+    size_t maxMembers = kMaxSummaryMembers
 )
 {
-    static constexpr size_t kMaxMembers = 5;
-    std::vector<std::string> memberLines;
-    size_t totalMembers = 0;
+    // Fields before functions, each section truncated independently -- same layout as
+    // buildClassFieldSummary. `props` is ordered by name, so without this split the two interleave
+    // alphabetically and the type's shape is scattered between its methods.
+    std::vector<std::string> fieldLines;
+    std::vector<std::string> functionLines;
+    size_t totalFields = 0;
+    size_t totalFunctions = 0;
 
     for (const auto& [name, prop] : et->props)
     {
         if (isDunderName(name))
             continue;
 
-        totalMembers++;
-        if (memberLines.size() >= kMaxMembers)
-            continue;
-
         std::optional<Luau::TypeId> ty = prop.readTy ? prop.readTy : prop.writeTy;
         if (!ty)
             continue;
 
-        std::string line = "    ";
         if (auto ftv = Luau::get<Luau::FunctionType>(Luau::follow(*ty)))
         {
+            totalFunctions++;
+            if (functionLines.size() >= maxMembers)
+                continue;
+
             types::ToStringNamedFunctionOpts funcOpts;
             funcOpts.hideTableKind = !showTableKinds;
             // Methods are declared as `function Name(self: Instance, ...): ret` -- print the
@@ -668,24 +677,34 @@ static std::string buildExternTypeSummary(
             // displayed; the reader already knows the self type from the header above.
             funcOpts.hideFirstParameterType = !ftv->argNames.empty() && ftv->argNames[0] && ftv->argNames[0]->name == "self";
             funcOpts.baseIndent = "    ";
-            line += types::toStringNamedFunction(module, ftv, name, scope, funcOpts);
+            functionLines.push_back("    " + types::toStringNamedFunction(module, ftv, name, scope, funcOpts));
         }
         else
         {
-            line += name + ": " + Luau::toString(Luau::follow(*ty));
+            totalFields++;
+            if (fieldLines.size() >= maxMembers)
+                continue;
+
+            fieldLines.push_back("    " + name + ": " + Luau::toString(Luau::follow(*ty)));
         }
-        memberLines.push_back(line);
     }
+
+    auto elidedLine = [](size_t elided)
+    {
+        return "    -- ⋯ " + std::to_string(elided) + " more member" + (elided == 1 ? "" : "s") + "\n";
+    };
 
     // Use the type's own toString (rather than the bare `et->name`) so that generic parameters
     // display correctly, e.g. "extern type Box<number>".
     std::string summary = "extern type " + Luau::toString(Luau::follow(typeId)) + "\n";
-    for (const auto& line : memberLines)
+    for (const auto& line : fieldLines)
         summary += line + "\n";
-    if (totalMembers > memberLines.size())
-        summary +=
-            "    -- ⋯ " + std::to_string(totalMembers - memberLines.size()) + " more member" + (totalMembers - memberLines.size() == 1 ? "" : "s") +
-            "\n";
+    if (totalFields > fieldLines.size())
+        summary += elidedLine(totalFields - fieldLines.size());
+    for (const auto& line : functionLines)
+        summary += line + "\n";
+    if (totalFunctions > functionLines.size())
+        summary += elidedLine(totalFunctions - functionLines.size());
     summary += "end";
 
     return summary;
@@ -1027,6 +1046,14 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
     opts.hideNamedFunctionTypeParameters = false;
     opts.hideTableKind = !config.hover.showTableKinds;
     opts.scope = scope;
+    // `maxTypeLength` truncates by refusing every emit past the limit, closing brackets included, so
+    // hitting it mid-type leaves an unbalanced `{`/`(` that breaks highlighting of everything after
+    // it in the code block. It applies per `where` clause body too, so one large alias (a library
+    // table of functions, say) is enough. `maxTableLength` instead stops between properties with a
+    // `... N more ...` entry and still closes the table -- make that the limit a hover normally hits,
+    // and keep `maxTypeLength` well above it as a backstop for types that aren't tables.
+    opts.maxTableLength = 500;
+    opts.maxTypeLength = 2000;
     // show type aliases referred to by this hover
     opts.includeWhereClauses = true;
     // hovering over the top level of alias itself shouldn't show just the alias name, 
@@ -1036,13 +1063,64 @@ std::optional<lsp::Hover> WorkspaceFolder::hover(const lsp::HoverParams& params,
     Luau::ToStringResult typeResult = Luau::toStringDetailed(*type, opts);
     std::string typeString = typeResult.name;
 
+    // A class or extern type referenced by the hovered type prints as a bare name, which says nothing
+    // about its shape -- and unlike an alias, ToString has no body to expand it into for a `where`
+    // clause. So give each one the same summary hovering the type directly would show, below the
+    // alias clauses. `typeSpans` records every ExternType emitted (union elements and alias bodies
+    // included), so it's the set of extern types actually visible in the hover, in print order.
+    // Like alias clauses this is one level deep: a class mentioned inside a summary isn't expanded.
+    std::string externTypeSummaries;
+    {
+        Luau::DenseHashSet<Luau::TypeId> seen{nullptr};
+        const auto& builtins = frontend.builtinTypes;
+
+        // A method's `self` is the class/extern type it's being called on (`x:function1()`) --
+        // summarizing the receiver back at the reader just repeats what they're already looking at.
+        if (auto ftv = Luau::get<Luau::FunctionType>(*type); ftv && !ftv->argNames.empty() && ftv->argNames[0] && ftv->argNames[0]->name == "self")
+        {
+            auto [argHead, _] = Luau::flatten(ftv->argTypes);
+            if (!argHead.empty())
+                seen.insert(Luau::follow(argHead[0]));
+        }
+        for (const auto& span : typeResult.typeSpans)
+        {
+            Luau::TypeId spanTy = Luau::follow(span.type);
+            const auto* et = Luau::get<Luau::ExternType>(spanTy);
+            if (!et || seen.contains(spanTy))
+                continue;
+            seen.insert(spanTy);
+
+            if (spanTy == builtins->externType || spanTy == builtins->objectType || spanTy == builtins->classType || spanTy == builtins->vectorType)
+                continue;
+
+            std::optional<std::string> summary;
+            if (et->parent == builtins->classType || et->parent == builtins->objectType)
+                summary = buildClassFieldSummary(
+                    frontend, module, moduleName, spanTy, et, scope, config.hover.showTableKinds, et->parent == builtins->classType,
+                    kMaxReferencedSummaryMembers
+                );
+            else if (!et->props.empty())
+                summary = buildExternTypeSummary(module, spanTy, et, scope, config.hover.showTableKinds, kMaxReferencedSummaryMembers);
+
+            if (!summary)
+                continue;
+            if (!externTypeSummaries.empty())
+                externTypeSummaries += "\n";
+            externTypeSummaries += *summary;
+        }
+    }
+
     // appends the `where` clauses that include all type aliases that are referred to within this hover
-    // (such as type Pathlike = string | Path | FilePath... for (path: Pathlike) -> string | error<info>)
+    // (such as type Pathlike = string | Path | FilePath... for (path: Pathlike) -> string | error<info>),
+    // followed by summaries of the classes/extern types it refers to
     auto withWhereClauses = [&](const std::string& body) -> std::string
     {
-        if (typeResult.whereClauses.empty())
-            return body;
-        return body + "\n\n" + typeResult.whereClauses;
+        std::string result = body;
+        if (!typeResult.whereClauses.empty())
+            result += "\n\n" + typeResult.whereClauses;
+        if (!externTypeSummaries.empty())
+            result += (typeResult.whereClauses.empty() ? "\n\n" : "\n") + externTypeSummaries;
+        return result;
     };
 
     // If we have a function and its corresponding name

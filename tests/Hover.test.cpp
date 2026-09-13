@@ -522,7 +522,7 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_class_type
     REQUIRE(result);
     CHECK_EQ(
         result->contents.value,
-        codeBlock("luau", "extern type DocumentedClass\n    function function1(self): number\n    member1: string\nend") + kDocumentationBreaker +
+        codeBlock("luau", "extern type DocumentedClass\n    member1: string\n    function function1(self): number\nend") + kDocumentationBreaker +
             "This is a documented class\n"
     );
 }
@@ -543,7 +543,7 @@ TEST_CASE_FIXTURE(Fixture, "includes_documentation_when_hovering_over_variable_w
     REQUIRE(result);
     CHECK_EQ(
         result->contents.value,
-        codeBlock("luau", "extern type DocumentedClass\n    function function1(self): number\n    member1: string\nend") + kDocumentationBreaker +
+        codeBlock("luau", "extern type DocumentedClass\n    member1: string\n    function function1(self): number\nend") + kDocumentationBreaker +
             "This is a documented class\n"
     );
 }
@@ -1417,6 +1417,110 @@ TEST_CASE_FIXTURE(Fixture, "class_summary_works_for_a_class_required_from_anothe
     CHECK(result->contents.value.find("private inner") != std::string::npos);
     CHECK(result->contents.value.find("function new") != std::string::npos);
     CHECK(result->contents.value.find("function len") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hover_includes_summary_of_class_referenced_by_the_type")
+{
+    // A class referenced inside a hovered type (here, one side of a union) prints as a bare name --
+    // the summary below the type is the only place its shape shows up, same as a `where` clause
+    // does for a type alias.
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Cat(name: string)
+            public function meow(self): string
+                return self.name
+            end
+        end
+
+        local |pet: Cat | string = "none"
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("local pet: Cat | string") != std::string::npos);
+    CHECK(result->contents.value.find("class Cat\n    name: string\n    function meow(self): string\nend") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hover_includes_summary_of_extern_type_referenced_by_the_type")
+{
+    auto [source, marker] = sourceWithMarker(R"(
+        local function |make(): DocumentedClass?
+            return nil
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("extern type DocumentedClass\n    member1: string\n    function function1(self): number\nend") !=
+          std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hover_truncates_summaries_of_referenced_classes_more_than_the_hovered_class")
+{
+    ScopedFastFlag sffs[] = {{FFlag::DebugLuauUserDefinedClasses, true}, {FFlag::LuauBetterUserDefinedClasses, true}};
+    ENABLE_NEW_SOLVER();
+
+    auto [source, marker] = sourceWithMarker(R"(
+        class Point(a: number, b: number, c: number, d: number, e: number)
+        end
+
+        local function |make(): Point?
+            return nil
+        end
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    CHECK(result->contents.value.find("class Point\n    a: number\n    b: number\n    c: number\n    -- ⋯ 2 more members\nend") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture, "hover_truncates_large_where_clause_tables_without_unbalancing_brackets")
+{
+    // ToString's maxTypeLength drops every emit past the limit, closing brackets included -- a large
+    // alias in a `where` clause used to be cut off mid-signature, leaving an unclosed `{`/`(` that
+    // broke highlighting of everything after it in the hover.
+    std::string alias = "type Library = {\n";
+    for (int i = 0; i < 40; i++)
+        alias += "    function_number_" + std::to_string(i) + ": (first_argument: number, second_argument: string?) -> boolean,\n";
+    alias += "}\n";
+
+    auto [source, marker] = sourceWithMarker(alias + R"(
+        local |lib: { inner: Library } = nil :: any
+    )");
+
+    auto uri = newDocument("foo.luau", source);
+
+    lsp::HoverParams params;
+    params.textDocument = lsp::TextDocumentIdentifier{uri};
+    params.position = marker;
+
+    auto result = workspace.hover(params, nullptr);
+    REQUIRE(result);
+    const std::string& hover = result->contents.value;
+    CHECK(hover.find("type Library = {") != std::string::npos);
+    CHECK(hover.find("-- ⋯ ") != std::string::npos);
+    CHECK(hover.find("more properties\n}") != std::string::npos);
+    CHECK(hover.find("TRUNCATED") == std::string::npos);
 }
 
 TEST_SUITE_END();
